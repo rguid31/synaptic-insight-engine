@@ -7,22 +7,18 @@ const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 // --- END AI SETUP ---
 
-// This is the main function Vercel will run when the /api/analyze endpoint is called
 module.exports = async (req, res) => {
-    // Only allow POST requests
     if (req.method !== 'POST') {
         return res.status(405).json({ error: 'Method Not Allowed' });
     }
 
     let { url } = req.body;
-
     if (!url) {
         return res.status(400).json({ error: 'URL is required' });
     }
 
     try {
         // --- SMART URL FIX ---
-        // If the user provides an abstract link from arXiv, convert it to the HTML version
         if (url.includes('arxiv.org/abs/')) {
             console.log('arXiv abstract URL detected. Converting to HTML version.');
             url = url.replace('/abs/', '/html/');
@@ -31,10 +27,9 @@ module.exports = async (req, res) => {
 
         // --- STEP 1: SCRAPE THE TEXT ---
         console.log(`Scraping content from: ${url}`);
-        const response = await axios.get(url, {
+        const { data: html } = await axios.get(url, {
             headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36' }
         });
-        const html = response.data;
         const $ = cheerio.load(html);
 
         let scrapedText = '';
@@ -48,12 +43,12 @@ module.exports = async (req, res) => {
         } else {
             scrapedText = $('body').text();
         }
-
-        // Clean up excessive whitespace and newlines
+        
         scrapedText = scrapedText.replace(/\s\s+/g, ' ').trim();
         
-        if (!scrapedText) {
-            return res.status(500).json({ error: 'Failed to scrape any meaningful text from the URL.' });
+        // Added a length check for more robust error handling
+        if (!scrapedText || scrapedText.length < 100) {
+            throw new Error('Failed to scrape any meaningful text from the URL.');
         }
 
         console.log(`Scraping successful. Text length: ${scrapedText.length}`);
@@ -79,12 +74,11 @@ module.exports = async (req, res) => {
 
         let analysisResult;
         try {
-            // The AI should return a JSON string. We parse it into an object.
             analysisResult = JSON.parse(aiResponseText);
         } catch (e) {
             console.error('Failed to parse JSON from AI response:', aiResponseText);
-            // If the AI response isn't valid JSON, we send an error.
-            return res.status(500).json({ error: 'AI returned an invalid response format.' });
+            // Throw a new, more specific error to be caught by our main catch block.
+            throw new Error('AI returned an invalid response format.');
         }
         
         // --- STEP 3: SEND THE RESULT BACK ---
@@ -94,13 +88,21 @@ module.exports = async (req, res) => {
         });
 
     } catch (error) {
-        console.error('Error in /api/analyze function:', error.message);
-        let userErrorMessage = 'An error occurred during analysis.';
+        // Log the full error for server-side debugging
+        console.error('Error in /api/analyze function:', error); 
+
+        // Craft a more user-friendly error message
+        let userErrorMessage = 'An unknown error occurred during analysis.';
         if (error.response && error.response.status === 404) {
-            userErrorMessage = 'Could not find the requested URL (404 Not Found).';
+            userErrorMessage = 'Could not find the requested URL (404 Not Found). Please check the link.';
         } else if (error.code === 'ENOTFOUND') {
-            userErrorMessage = 'Could not resolve the domain name. Please check the URL.';
+            userErrorMessage = 'Could not resolve the domain name. Please check the URL and try again.';
+        } else if (error.message.includes('AI returned an invalid response format')) {
+            userErrorMessage = 'The AI failed to structure its analysis correctly. This can happen with very complex or unusual articles.';
+        } else if (error.message.includes('Failed to scrape any meaningful text')) {
+            userErrorMessage = 'Could not extract readable text from this URL. The site may be too complex or block automated scraping.';
         }
+        
         res.status(500).json({ error: userErrorMessage });
     }
 };
