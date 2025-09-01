@@ -1,8 +1,8 @@
-const axios = require('axios');
-const cheerio = require('cheerio');
-const { GoogleGenerativeAI } = require('@google/generative-ai');
+import axios from 'axios';
+import cheerio from 'cheerio';
+import { GoogleGenerativeAI } from '@google/generative-ai';
 
-module.exports = async (req, res) => {
+export default async (req, res) => {
     try {
         console.log("Function started. Checking for API key...");
         if (!process.env.GEMINI_API_KEY) {
@@ -103,4 +103,3 @@ module.exports = async (req, res) => {
         res.status(500).json({ error: userErrorMessage });
     }
 };
-import { Analytics } from "@vercel/analytics"; // <-- Added import
