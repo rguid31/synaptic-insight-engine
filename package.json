@@ -2,11 +2,12 @@
   "name": "synaptic-insight-engine",
   "version": "1.0.0",
   "description": "An AI-powered web application to analyze scientific papers.",
-  "main": "index.html",
+  "main": "index.js",
+  "type": "module",
   "scripts": {
     "start": "vercel dev"
   },
-  "author": "Ryan Guidry",
+  "author": "Ryan Guidry <inquireryan@gmail.com>",
   "license": "MIT",
   "dependencies": {
     "@google/generative-ai": "^0.14.1",
