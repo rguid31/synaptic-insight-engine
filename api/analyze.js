@@ -2,47 +2,33 @@ const axios = require('axios');
 const cheerio = require('cheerio');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 
-// This is the main function Vercel will run
 module.exports = async (req, res) => {
-    // Master try-catch block to handle any unexpected crashes
     try {
-        // --- STEP 0: VALIDATE API KEY ---
         console.log("Function started. Checking for API key...");
         if (!process.env.GEMINI_API_KEY) {
-            console.error("CRITICAL: GEMINI_API_KEY is not defined in Vercel environment.");
-            // Send a specific error if the key is missing
+            console.error("CRITICAL: GEMINI_API_KEY is not defined.");
             return res.status(500).json({ error: 'Server configuration error: API key is missing.' });
         }
-        console.log("API key found. Initializing AI model...");
+        console.log("API key found.");
 
         const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
         const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
-        console.log("AI Model initialized successfully.");
-        // --- END AI SETUP ---
+        console.log("AI Model initialized.");
 
-        if (req.method !== 'POST') {
-            return res.status(405).json({ error: 'Method Not Allowed' });
-        }
+        if (req.method !== 'POST') return res.status(405).json({ error: 'Method Not Allowed' });
 
         let { url } = req.body;
-        if (!url) {
-            return res.status(400).json({ error: 'URL is required' });
-        }
+        if (!url) return res.status(400).json({ error: 'URL is required' });
         
-        console.log(`Received URL for analysis: ${url}`);
+        console.log(`Received URL: ${url}`);
 
-        // --- SMART URL FIX ---
         if (url.includes('arxiv.org/abs/')) {
             url = url.replace('/abs/', '/html/');
             console.log(`Converted arXiv URL to: ${url}`);
         }
-        // --- END SMART URL FIX ---
 
-        // --- STEP 1: SCRAPE THE TEXT ---
         console.log(`Attempting to scrape content from: ${url}`);
-        const { data: html } = await axios.get(url, {
-            headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36' }
-        });
+        const { data: html } = await axios.get(url, { headers: { 'User-Agent': 'Mozilla/5.0' } });
         const $ = cheerio.load(html);
 
         let scrapedText = '';
@@ -53,12 +39,9 @@ module.exports = async (req, res) => {
         
         scrapedText = scrapedText.replace(/\s\s+/g, ' ').trim();
         
-        if (!scrapedText || scrapedText.length < 100) {
-            throw new Error('Failed to scrape any meaningful text from the URL.');
-        }
+        if (!scrapedText || scrapedText.length < 100) throw new Error('Failed to scrape any meaningful text.');
         console.log(`Scraping successful. Text length: ${scrapedText.length}`);
 
-        // --- STEP 2: ANALYZE WITH GEMINI AI ---
         const systemPrompt = `
             You are a highly analytical AI assistant for the "Synaptic Insight Engine." Your task is to analyze the provided text from a scientific paper or tech case study. Your goal is to identify potential exploits, opportunities, knowledge gaps, and underlying growth models.
             Analyze the following text and respond ONLY with a valid JSON object. Do not include any explanatory text, comments, or markdown formatting like \`\`\`json.
@@ -70,32 +53,42 @@ module.exports = async (req, res) => {
             - "models": Identify any phrases that suggest a specific type of growth or improvement model (e.g., "exponential growth," "10x improvement"). Each finding should be a complete sentence and include the exact quote it's based on.
         `;
         
-        console.log('Sending text to Gemini API for analysis...');
-        const result = await model.generateContent([systemPrompt, scrapedText]);
-        const aiResponseText = result.response.text();
+        let aiResponseText;
+        try {
+            console.log('Sending text to Gemini API for analysis...');
+            const result = await model.generateContent([systemPrompt, scrapedText]);
+            aiResponseText = result.response.text();
+            console.log('Received analysis from Gemini API.');
+        } catch (aiError) {
+            // This is our new, specific catch block for AI errors!
+            console.error('--- ERROR DURING GEMINI API CALL ---');
+            console.error('AI Error Message:', aiError.message);
+            // Re-throw the error with a more specific message for our main catch block
+            throw new Error(`Gemini API Error: ${aiError.message}`);
+        }
         
-        console.log('Received analysis from Gemini API. Attempting to parse JSON...');
+        console.log('Attempting to parse JSON...');
         const analysisResult = JSON.parse(aiResponseText);
         console.log('JSON parsed successfully.');
         
-        // --- STEP 3: SEND THE RESULT BACK ---
-        console.log('Sending final successful response to frontend.');
+        console.log('Sending final successful response.');
         res.status(200).json({
             sourceText: scrapedText,
             analysis: analysisResult
         });
 
     } catch (error) {
-        // This will now catch ANY error from the entire process
-        console.error('--- A CRITICAL ERROR OCCURRED ---');
+        console.error('--- A CRITICAL ERROR OCCURRED IN THE MAIN FUNCTION ---');
         console.error('Error Message:', error.message);
-        console.error('Error Stack:', error.stack); // More detailed error info
         
         let userErrorMessage = 'An unknown server error occurred.';
         if (error.message.includes('Failed to scrape')) {
-            userErrorMessage = 'Could not extract readable text from this URL. The site may be too complex or block automated scraping.';
+            userErrorMessage = 'Could not extract readable text from this URL. The site may block automated scraping.';
         } else if (error.message.includes('invalid JSON')) {
-            userErrorMessage = 'The AI returned a response that could not be understood. This can happen with very complex articles.';
+            userErrorMessage = 'The AI returned a response that could not be understood.';
+        } else if (error.message.includes('Gemini API Error')) {
+            // Our new specific error message for the user!
+            userErrorMessage = 'The AI analysis failed. The server logs may have more details.';
         }
 
         res.status(500).json({ error: userErrorMessage });
