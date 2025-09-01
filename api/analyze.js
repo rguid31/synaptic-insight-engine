@@ -2,6 +2,7 @@ const axios = require('axios');
 const cheerio = require('cheerio');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const winston = require('winston');
+import { Analytics } from "@vercel/analytics/next"; // <-- Added import
 
 const logger = winston.createLogger({
     level: process.env.NODE_ENV === 'production' ? 'info' : 'debug',
