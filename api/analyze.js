@@ -28,7 +28,34 @@ export default async (req, res) => {
         }
 
         console.log(`Attempting to scrape content from: ${url}`);
-        const { data: html } = await axios.get(url, { headers: { 'User-Agent': 'Mozilla/5.0' } });
+        let html;
+        try {
+            const response = await axios.get(url, {
+                headers: {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36',
+                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+                    'Accept-Language': 'en-US,en;q=0.5',
+                    'Connection': 'keep-alive'
+                },
+                timeout: 10000 // 10-second timeout
+            });
+            html = response.data;
+        } catch (axiosError) {
+            console.error('Axios Error:', axiosError.message);
+            if (axiosError.response) {
+                console.error('Response Status:', axiosError.response.status);
+                console.error('Response Headers:', axiosError.response.headers);
+                if (axiosError.response.status === 403) {
+                    return res.status(500).json({ error: 'Access denied: The site may require authentication or block automated requests.' });
+                } else if (axiosError.response.status === 429) {
+                    return res.status(500).json({ error: 'Rate limited: Too many requests to the site. Try again later.' });
+                } else if (axiosError.response.status === 404) {
+                    return res.status(500).json({ error: 'URL not found: The page does not exist.' });
+                }
+            }
+            throw new Error('Could not access this URL. The site may have a paywall, require a login, or actively block automated analysis tools.');
+        }
+
         const $ = cheerio.load(html);
 
         let scrapedText = '';
@@ -39,7 +66,10 @@ export default async (req, res) => {
         
         scrapedText = scrapedText.replace(/\s\s+/g, ' ').trim();
         
-        if (!scrapedText || scrapedText.length < 100) throw new Error('Failed to scrape any meaningful text.');
+        if (!scrapedText || scrapedText.length < 100) {
+            console.error('Scraped text too short:', scrapedText.length);
+            throw new Error('Failed to scrape any meaningful text.');
+        }
         console.log(`Scraping successful. Text length: ${scrapedText.length}`);
 
         const systemPrompt = `
@@ -68,7 +98,6 @@ export default async (req, res) => {
         console.log('Attempting to parse JSON...');
         let analysisResult;
         try {
-            // Extract the first JSON object from the response text
             const jsonMatch = aiResponseText.match(/\{[\s\S]*\}/);
             if (!jsonMatch) throw new Error('invalid JSON: No JSON object found in AI response.');
             analysisResult = JSON.parse(jsonMatch[0]);
@@ -89,9 +118,8 @@ export default async (req, res) => {
         console.error('Error Message:', error.message);
         
         let userErrorMessage = 'An unknown server error occurred.';
-
         if (error.isAxiosError) {
-            userErrorMessage = 'Could not access this URL. The site may have a paywall, require a login, or actively block automated analysis tools.';
+            userErrorMessage = error.message; // Use specific Axios error message
         } else if (error.message.includes('Failed to scrape')) {
             userErrorMessage = 'Could not extract readable text from this URL. The site structure is too complex for the scraper.';
         } else if (error.message.includes('invalid JSON')) {
