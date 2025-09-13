@@ -12,8 +12,13 @@ export default async (req, res) => {
         console.log("API key found.");
 
         const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
-        console.log("AI Model initialized.");
+        const model = genAI.getGenerativeModel({
+            model: "gemini-1.5-flash",
+            generationConfig: {
+                response_mime_type: "application/json",
+            }
+        });
+        console.log("AI Model initialized in JSON output mode.");
 
         if (req.method !== 'POST') return res.status(405).json({ error: 'Method Not Allowed' });
 
@@ -110,10 +115,14 @@ export default async (req, res) => {
         console.log(`Scraped text length: ${scrapedText.length}`);
 
         const systemPrompt = `
-            You are a highly analytical AI assistant for the "Synaptic Insight Engine." Your task is to analyze the provided text from a scientific paper or tech case study. Your goal is to identify potential exploits, opportunities, knowledge gaps, and underlying growth models.
-            Analyze the following text and respond ONLY with a valid JSON object. Do not include any explanatory text, comments, or markdown formatting like \`\`\`json.
-            The JSON object must have these four keys: "exploits", "opportunities", "gaps", "models".
-            - Each key must have an array of strings as its value.
+            You are a highly analytical AI assistant for the "Synaptic Insight Engine." Your task is to analyze the provided text from a scientific paper or tech case study and return a JSON object.
+            Your response must be a JSON object with the following schema:
+            {
+                "exploits": [String],
+                "opportunities": [String],
+                "gaps": [String],
+                "models": [String]
+            }
             - "exploits": Identify hyperbolic buzzwords, claims that lack evidence (e.g., "secret formula," "data is confidential"), and red flags that suggest marketing over science. Each finding should be a complete sentence and include the exact quote it's based on, like: 'The claim of a "secret formula" is an exploit because it lacks scientific transparency.'
             - "opportunities": Identify the core technology or scientific principle that has legitimate potential, even if the claims are exaggerated. Each finding should be a complete sentence and include the exact quote it's based on.
             - "gaps": Identify what's missing, such as a lack of peer-reviewed data, an unexplained scientific mechanism, or missing trial information. Each finding should be a complete sentence and include the exact quote or concept it's based on.
@@ -132,16 +141,16 @@ export default async (req, res) => {
             throw new Error(`Gemini API Error: ${aiError.message}`);
         }
         
-        console.log('Attempting to parse JSON...');
+        console.log('Attempting to parse JSON from AI response...');
         let analysisResult;
         try {
-            const jsonMatch = aiResponseText.match(/\{[\s\S]*\}/);
-            if (!jsonMatch) throw new Error('invalid JSON: No JSON object found in AI response.');
-            analysisResult = JSON.parse(jsonMatch[0]);
+            // With JSON mode enabled, the response text is a clean JSON string.
+            analysisResult = JSON.parse(aiResponseText);
             console.log('JSON parsed successfully.');
         } catch (parseError) {
             console.error('JSON parsing failed:', parseError.message);
-            throw new Error('invalid JSON: ' + parseError.message);
+            console.error('Raw AI response text:', aiResponseText); // Log the raw text for debugging
+            throw new Error('invalid JSON: The AI returned a malformed JSON response.');
         }
         
         console.log('Sending final successful response.');
