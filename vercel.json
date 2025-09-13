@@ -1,5 +1,4 @@
 {
-  "name": "synaptic-insight-engine",
   "functions": {
     "api/**/*.js": {
       "maxDuration": 30,
