@@ -5,7 +5,7 @@
   "main": "index.html",
   "scripts": {
     "start": "vercel dev",
-    "build": "npm install"
+    "build": "cp -r *.html *.js *.css dist/"
   },
   "author": "Ryan Guidry",
   "license": "MIT",

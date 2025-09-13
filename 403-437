@@ -1,0 +1,35 @@
+        <div class="input-section">
+            <form id="analyzeForm">
+                <input type="url" class="url-input" id="urlInput" placeholder="Enter case study URL (e.g., https://arxiv.org/abs/1234.56789)" aria-label="Case Study URL Input" required>
+                <div class="features-grid">
+                    <div class="features-column">
+                        <div>
+                            <h3><span class="card-icon" style="font-size: 0.8em; width: 24px; height: 24px;">🔬</span> Standard Analysis</h3>
+                            <ul>
+                                <li>Unscientific claims & money-making tactics</li>
+                                <li>Knowledge gaps & missing data</li>
+                                <li>Opportunities for legitimate solutions</li>
+                                <li>Growth mechanics based on mathematical models</li>
+                            </ul>
+                        </div>
+                    </div>
+                    <div class="features-column">
+                        <div>
+                            <h3><span class="card-icon" style="font-size: 0.8em; width: 24px; height: 24px;">��</span> Premium Analysis</h3>
+                            <ul>
+                                <li>Market viability scoring</li>
+                                <li>Suggested MVP feature set</li>
+                                <li>Potential funding avenues</li>
+                                <li>Ethical consideration flags</li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+                <div class="button-container">
+                    <button type="button" class="random-btn" onclick="loadRandomExample()" aria-label="Load a random example URL">🎲 Try a Random Example</button>
+                    <button type="submit" class="analyze-btn" aria-label="Analyze the provided case study URL">�� Analyze Case Study</button>
+                    <button type="button" class="reset-btn" onclick="resetUI()" aria-label="Reset the analysis fields">🔄 Reset</button>
+                </div>
+            </form>
+            <div id="error" style="color: red; text-align: center; margin-top: 15px;"></div>
+        </div>

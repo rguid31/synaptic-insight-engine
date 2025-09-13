@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Synaptic Insight Engine</title>
+    <link rel="icon" href="/favicon.ico" type="image/x-icon">
     <style>
         /* --- Base & Typography --- */
         :root {
@@ -401,40 +402,39 @@
         </header>
 
         <div class="input-section">
-            <input type="url" class="url-input" id="urlInput" placeholder="Enter case study URL (or click below to try an example)" aria-label="Case Study URL Input">
-            
-            <div class="features-grid">
-                <div class="features-column">
-                    <div>
-                        <!-- Key HTML fix for icon alignment -->
-                        <h3><span class="card-icon" style="font-size: 0.8em; width: 24px; height: 24px;">🔬</span> Standard Analysis</h3>
-                        <ul>
-                            <li>Unscientific claims & money-making tactics</li>
-                            <li>Knowledge gaps & missing data</li>
-                            <li>Opportunities for legitimate solutions</li>
-                            <li>Growth mechanics based on mathematical models</li>
-                        </ul>
+            <form id="analyzeForm">
+                <input type="url" class="url-input" id="urlInput" placeholder="Enter case study URL (e.g., https://arxiv.org/abs/1234.56789)" aria-label="Case Study URL Input" required>
+                <div class="features-grid">
+                    <div class="features-column">
+                        <div>
+                            <h3><span class="card-icon" style="font-size: 0.8em; width: 24px; height: 24px;">🔬</span> Standard Analysis</h3>
+                            <ul>
+                                <li>Unscientific claims & money-making tactics</li>
+                                <li>Knowledge gaps & missing data</li>
+                                <li>Opportunities for legitimate solutions</li>
+                                <li>Growth mechanics based on mathematical models</li>
+                            </ul>
+                        </div>
+                    </div>
+                    <div class="features-column">
+                        <div>
+                            <h3><span class="card-icon" style="font-size: 0.8em; width: 24px; height: 24px;">��</span> Premium Analysis</h3>
+                            <ul>
+                                <li>Market viability scoring</li>
+                                <li>Suggested MVP feature set</li>
+                                <li>Potential funding avenues</li>
+                                <li>Ethical consideration flags</li>
+                            </ul>
+                        </div>
                     </div>
                 </div>
-                <div class="features-column">
-                    <div>
-                        <!-- Key HTML fix for icon alignment -->
-                        <h3><span class="card-icon" style="font-size: 0.8em; width: 24px; height: 24px;">💎</span> Premium Analysis</h3>
-                        <ul>
-                            <li>Market viability scoring</li>
-                            <li>Suggested MVP feature set</li>
-                            <li>Potential funding avenues</li>
-                            <li>Ethical consideration flags</li>
-                        </ul>
-                    </div>
+                <div class="button-container">
+                    <button type="button" class="random-btn" onclick="loadRandomExample()" aria-label="Load a random example URL">🎲 Try a Random Example</button>
+                    <button type="submit" class="analyze-btn" aria-label="Analyze the provided case study URL">�� Analyze Case Study</button>
+                    <button type="button" class="reset-btn" onclick="resetUI()" aria-label="Reset the analysis fields">🔄 Reset</button>
                 </div>
-            </div>
-
-            <div class="button-container">
-                <button class="random-btn" onclick="loadRandomExample()" aria-label="Load a random example URL">🎲 Try a Random Example</button>
-                <button class="analyze-btn" onclick="analyzeCase()" aria-label="Analyze the provided case study URL">🧠 Analyze Case Study</button>
-                <button class="reset-btn" onclick="resetUI()" aria-label="Reset the analysis fields">🔄 Reset</button>
-            </div>
+            </form>
+            <div id="error" style="color: red; text-align: center; margin-top: 15px;"></div>
         </div>
 
         <div class="category-section" id="domainCarousel">
@@ -490,6 +490,8 @@
     <script>
         // --- DOM ELEMENTS ---
         const urlInput = document.getElementById('urlInput');
+        const analyzeForm = document.getElementById('analyzeForm');
+        const errorDiv = document.getElementById('error');
         const resultsDiv = document.getElementById('results');
         const loadingDiv = document.querySelector('.loading');
         const blueprintSection = document.getElementById('blueprintSection');
@@ -577,57 +579,48 @@
             currentPage = (currentPage - 1 + totalPages) % totalPages;
             updateCarousel();
         }
-        
+
         function goToPage(pageNumber) {
             currentPage = pageNumber;
             updateCarousel();
         }
 
         // --- CORE APPLICATION LOGIC ---
-
         async function analyzeCase() {
-            const url = urlInput.value;
+            const url = urlInput.value.trim();
             if (!url) {
-                showToast('Please enter a case study URL.');
+                showToast('Please enter a valid URL', true);
+                errorDiv.textContent = 'Please enter a valid URL';
                 return;
             }
 
-            resetUI(true); 
-            updateLoadingText('Connecting to backend...');
-
+            resetUI(true);
+            updateLoadingText('Processing neural pathways...');
             try {
-                const response = await fetch('/api/analyze.js', {
+                const response = await fetch('/api/analyze', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ url: url }),
+                    body: JSON.stringify({ url })
                 });
-
                 if (!response.ok) {
-                    const errorData = await response.json();
-                    throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
+                    const text = await response.text();
+                    throw new Error(`HTTP error! Status: ${response.status}, Body: ${text}`);
                 }
-                
-                updateLoadingText('Server received URL, scraping content...');
                 const data = await response.json();
                 currentAnalysisResult = data;
-                
-                updateLoadingText('Content scraped, analyzing with AI...');
-                
-                // Slight delay to allow text to update before showing results
-                setTimeout(() => {
-                    displayResults(data.analysis);
-                    displaySourceText(data.sourceText);
-                    loadingDiv.style.display = 'none';
-                    generateBlueprint(); // Auto-generate blueprint after analysis
-                }, 500);
-
+                displayResults(data.analysis);
+                displaySourceText(data.sourceText);
+                generateBlueprint();
+                showToast('Analysis complete!');
             } catch (error) {
                 console.error('Error during analysis:', error);
-                showToast(`Analysis failed: ${error.message}`, true);
-                resetUI();
+                showToast(error.message, true);
+                errorDiv.textContent = error.message;
+            } finally {
+                loadingDiv.style.display = 'none';
             }
         }
-        
+
         function displayResults(analysis) {
             resultsDiv.innerHTML = '';
             const categories = {
@@ -662,7 +655,6 @@
         }
 
         // --- UTILITY & HELPER FUNCTIONS ---
-
         function showToast(message, isError = false) {
             const toast = document.createElement('div');
             toast.className = `toast ${isError ? 'error' : ''}`;
@@ -674,23 +666,24 @@
                 setTimeout(() => document.body.removeChild(toast), 300);
             }, 4000);
         }
-        
+
         function updateLoadingText(text) {
             document.getElementById('loadingText').textContent = text;
         }
-        
+
         function resetUI(isLoading = false) {
             resultsDiv.style.display = 'none';
             blueprintSection.style.display = 'none';
             sourceTextSection.style.display = 'none';
+            errorDiv.textContent = '';
             loadingDiv.style.display = isLoading ? 'block' : 'none';
             if (!isLoading) {
-                 urlInput.value = '';
-                 document.querySelector('.reset-btn').style.display = 'none';
-                 currentAnalysisResult = null;
+                urlInput.value = '';
+                document.querySelector('.reset-btn').style.display = 'none';
+                currentAnalysisResult = null;
             }
         }
-        
+
         function loadRandomExample() {
             const examples = [
                 { url: 'https://arxiv.org/html/2307.12008v2' },
@@ -704,14 +697,12 @@
 
         function highlightTextInString(text) {
             if (!currentAnalysisResult || !currentAnalysisResult.sourceText) return text;
-            // Find quoted phrases to use as keywords
             const keywords = text.match(/"(.*?)"/g);
             if (!keywords) return text;
 
             const keyword = keywords[0].replace(/"/g, '');
             return `${text} <a href="#sourceTextSection" onclick="event.preventDefault(); scrollToHighlight('${keyword.replace(/'/g, "\\'")}')" class="context-link">(See context)</a>`;
         }
-
 
         function scrollToHighlight(keyword) {
             const contentEl = sourceTextContent;
@@ -723,14 +714,14 @@
             const mark = contentEl.querySelector('mark');
             if (mark) {
                 mark.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                setTimeout(() => { contentEl.textContent = originalText; }, 2000); 
+                setTimeout(() => { contentEl.textContent = originalText; }, 2000);
             } else {
                 contentEl.textContent = originalText;
             }
         }
-        
+
         function generateBlueprint() {
-            if (!currentAnalysisResult) return; // Called automatically now
+            if (!currentAnalysisResult) return;
             const { analysis } = currentAnalysisResult;
             const opportunities = analysis.opportunities || [];
             const gaps = analysis.gaps || [];
@@ -750,7 +741,7 @@ Address the primary knowledge gap: "${gaps.length > 0 ? gaps[0].split('"')[1] ||
 Focus on the core legitimate opportunity: "${opportunities.length > 0 ? opportunities[0].split('"')[1] || 'The underlying scientific principle' : 'The underlying scientific principle'}".
 
 3. Proposed MVP Features:
--------------------------
+------------------------
 * A public data dashboard to transparently display experimental results.
 * An open-source simulation model of the core scientific mechanism.
 * A peer-review submission portal to gather external validation.
@@ -780,6 +771,12 @@ Focus on the core legitimate opportunity: "${opportunities.length > 0 ? opportun
             a.click();
             document.body.removeChild(a);
         }
+
+        // Form submission handler
+        analyzeForm.addEventListener('submit', (e) => {
+            e.preventDefault();
+            analyzeCase();
+        });
 
         document.addEventListener('DOMContentLoaded', () => {
             setupCarousel();
