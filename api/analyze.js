@@ -3,8 +3,9 @@ import { load } from 'cheerio'; // Explicitly import cheerio.load
 import { GoogleGenerativeAI } from '@google/generative-ai';
 
 export default async (req, res) => {
+    console.log(`[${new Date().toISOString()}] - Function execution started.`);
     try {
-        console.log("Function started. Checking for API key...");
+        console.log(`[${new Date().toISOString()}] - Checking for API key...`);
         if (!process.env.GEMINI_API_KEY) {
             console.error("CRITICAL: GEMINI_API_KEY is not defined.");
             return res.status(500).json({ error: 'Server configuration error: API key is missing.' });
@@ -41,7 +42,7 @@ export default async (req, res) => {
             }
         }
 
-        console.log(`Attempting to scrape content from: ${url}`);
+        console.log(`[${new Date().toISOString()}] - Attempting to scrape content from: ${url}`);
         let html;
         try {
             const response = await axios.get(url, {
@@ -131,10 +132,10 @@ export default async (req, res) => {
         
         let aiResponseText;
         try {
-            console.log('Sending text to Gemini API for analysis...');
+            console.log(`[${new Date().toISOString()}] - Sending text to Gemini API for analysis...`);
             const result = await model.generateContent([systemPrompt, scrapedText]);
             aiResponseText = result.response.text();
-            console.log('Received analysis from Gemini API.');
+            console.log(`[${new Date().toISOString()}] - Received analysis from Gemini API.`);
         } catch (aiError) {
             console.error('--- ERROR DURING GEMINI API CALL ---');
             console.error('AI Error Message:', aiError.message);
@@ -160,8 +161,9 @@ export default async (req, res) => {
         });
 
     } catch (error) {
-        console.error('--- A CRITICAL ERROR OCCURRED IN THE MAIN FUNCTION ---');
-        console.error('Error Message:', error.message);
+        console.error(`[${new Date().toISOString()}] - --- A CRITICAL ERROR OCCURRED IN THE MAIN FUNCTION ---`);
+        console.error(`[${new Date().toISOString()}] - Error Message:`, error.message);
+        console.error(`[${new Date().toISOString()}] - Error Stack:`, error.stack);
         
         let userErrorMessage = 'An unknown server error occurred.';
         if (error.isAxiosError) {
