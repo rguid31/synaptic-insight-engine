@@ -1,11 +1,10 @@
 import axios from 'axios';
-import { load } from 'cheerio'; // Explicitly import cheerio.load
+import { load } from 'cheerio';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 
 export default async (req, res) => {
-    console.log(`[${new Date().toISOString()}] - Function execution started.`);
     try {
-        console.log(`[${new Date().toISOString()}] - Checking for API key...`);
+        console.log("Function started. Checking for API key...");
         if (!process.env.GEMINI_API_KEY) {
             console.error("CRITICAL: GEMINI_API_KEY is not defined.");
             return res.status(500).json({ error: 'Server configuration error: API key is missing.' });
@@ -13,13 +12,8 @@ export default async (req, res) => {
         console.log("API key found.");
 
         const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-        const model = genAI.getGenerativeModel({
-            model: "gemini-1.5-flash",
-            generationConfig: {
-                response_mime_type: "application/json",
-            }
-        });
-        console.log("AI Model initialized in JSON output mode.");
+        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+        console.log("AI Model initialized.");
 
         if (req.method !== 'POST') return res.status(405).json({ error: 'Method Not Allowed' });
 
@@ -28,7 +22,7 @@ export default async (req, res) => {
         
         console.log(`Received URL: ${url}`);
 
-        // Normalize arXiv URLs to /abs/ format and remove .pdf extension
+        // Normalize arXiv URLs
         if (url.includes('arxiv.org')) {
             if (url.includes('/html/')) {
                 url = url.replace('/html/', '/abs/').replace(/\.pdf$/, '');
@@ -42,48 +36,54 @@ export default async (req, res) => {
             }
         }
 
-        console.log(`[${new Date().toISOString()}] - Attempting to scrape content from: ${url}`);
+        console.log(`Attempting to scrape content from: ${url}`);
         let html;
-        try {
-            const response = await axios.get(url, {
-                headers: {
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36',
-                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-                    'Accept-Language': 'en-US,en;q=0.5',
-                    'Connection': 'keep-alive'
-                },
-                timeout: 10000 // 10-second timeout
-            });
+        let retries = 2;
+        let attempt = 0;
+        while (attempt <= retries) {
+            try {
+                const response = await axios.get(url, {
+                    headers: {
+                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36',
+                        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+                        'Accept-Language': 'en-US,en;q=0.5',
+                        'Connection': 'keep-alive'
+                    },
+                    timeout: 15000 // Increased for Vercel
+                });
 
-            // Check Content-Type to ensure it's HTML
-            const contentType = response.headers['content-type'] || '';
-            if (!contentType.includes('text/html')) {
-                console.error(`Invalid Content-Type: ${contentType}`);
-                return res.status(400).json({ error: 'Invalid content: The URL points to a non-HTML resource (e.g., PDF). Please use an arXiv abstract page (e.g., https://arxiv.org/abs/2307.12008).' });
-            }
-
-            html = response.data;
-            console.log(`Scraping successful. Response length: ${html.length}`);
-        } catch (axiosError) {
-            console.error('Axios Error:', axiosError.message);
-            if (axiosError.response) {
-                console.error('Response Status:', axiosError.response.status);
-                console.error('Response Headers:', axiosError.response.headers);
-                if (axiosError.response.status === 404) {
-                    return res.status(400).json({ error: 'URL not found: The page does not exist. Please check the URL (e.g., https://arxiv.org/abs/2307.12008).' });
-                } else if (axiosError.response.status === 403) {
-                    return res.status(400).json({ error: 'Access denied: The site may require authentication or block automated requests.' });
-                } else if (axiosError.response.status === 429) {
-                    return res.status(429).json({ error: 'Rate limited: Too many requests to the site. Try again later.' });
+                const contentType = response.headers['content-type'] || '';
+                if (!contentType.includes('text/html')) {
+                    console.error(`Invalid Content-Type: ${contentType}`);
+                    return res.status(400).json({ error: 'Invalid content: The URL points to a non-HTML resource (e.g., PDF). Please use an arXiv abstract page (e.g., https://arxiv.org/abs/2307.12008).' });
                 }
+
+                html = response.data;
+                console.log(`Scraping successful. Response length: ${html.length}`);
+                break;
+            } catch (axiosError) {
+                attempt++;
+                console.error(`Axios Error (Attempt ${attempt}):`, axiosError.message);
+                if (axiosError.response) {
+                    console.error('Response Status:', axiosError.response.status);
+                    if (axiosError.response.status === 404) {
+                        return res.status(400).json({ error: 'URL not found: The page does not exist. Please check the URL (e.g., https://arxiv.org/abs/2307.12008).' });
+                    } else if (axiosError.response.status === 403) {
+                        return res.status(400).json({ error: 'Access denied: The site may require authentication or block automated requests.' });
+                    } else if (axiosError.response.status === 429) {
+                        return res.status(429).json({ error: 'Rate limited: Too many requests to the site. Try again later.' });
+                    }
+                }
+                if (attempt > retries) {
+                    throw new Error('Could not access this URL after multiple attempts.');
+                }
+                console.log(`Retrying... (${attempt}/${retries})`);
             }
-            throw new Error('Could not access this URL. The site may have a paywall, require a login, or actively block automated analysis tools.');
         }
 
-        // Initialize Cheerio
         let $;
         try {
-            $ = load(html); // Use imported load function
+            $ = load(html);
         } catch (cheerioError) {
             console.error('Cheerio Error:', cheerioError.message);
             throw new Error('Failed to parse HTML content.');
@@ -115,43 +115,37 @@ export default async (req, res) => {
         }
         console.log(`Scraped text length: ${scrapedText.length}`);
 
-        const systemPrompt = `
-            You are a highly analytical AI assistant for the "Synaptic Insight Engine." Your task is to analyze the provided text from a scientific paper or tech case study and return a JSON object.
-            Your response must be a JSON object with the following schema:
-            {
-                "exploits": [String],
-                "opportunities": [String],
-                "gaps": [String],
-                "models": [String]
-            }
-            - "exploits": Identify hyperbolic buzzwords, claims that lack evidence (e.g., "secret formula," "data is confidential"), and red flags that suggest marketing over science. Each finding should be a complete sentence and include the exact quote it's based on, like: 'The claim of a "secret formula" is an exploit because it lacks scientific transparency.'
-            - "opportunities": Identify the core technology or scientific principle that has legitimate potential, even if the claims are exaggerated. Each finding should be a complete sentence and include the exact quote it's based on.
-            - "gaps": Identify what's missing, such as a lack of peer-reviewed data, an unexplained scientific mechanism, or missing trial information. Each finding should be a complete sentence and include the exact quote or concept it's based on.
-            - "models": Identify any phrases that suggest a specific type of growth or improvement model (e.g., "exponential growth," "10x improvement"). Each finding should be a complete sentence and include the exact quote it's based on.
-        `;
-        
+        const systemPrompt = `You are a highly analytical AI assistant for the "Synaptic Insight Engine." Your task is to analyze the provided text from a scientific paper or tech case study. Your goal is to identify potential exploits, opportunities, knowledge gaps, and underlying growth models.
+        Analyze the following text and respond ONLY with a valid JSON object. Do not include any explanatory text, comments, or markdown formatting like \`\`\`json.
+        The JSON object must have these four keys: "exploits", "opportunities", "gaps", "models".
+        - Each key must have an array of strings as its value.
+        - "exploits": Identify hyperbolic buzzwords, claims that lack evidence (e.g., "secret formula," "data is confidential"), and red flags that suggest marketing over science. Each finding should be a complete sentence and include the exact quote it's based on, like: 'The claim of a "secret formula" is an exploit because it lacks scientific transparency.'
+        - "opportunities": Identify the core technology or scientific principle that has legitimate potential, even if the claims are exaggerated. Each finding should be a complete sentence and include the exact quote it's based on.
+        - "gaps": Identify what's missing, such as a lack of peer-reviewed data, an unexplained scientific mechanism, or missing trial information. Each finding should be a complete sentence and include the exact quote or concept it's based on.
+        - "models": Identify any phrases that suggest a specific type of growth or improvement model (e.g., "exponential growth," "10x improvement"). Each finding should be a complete sentence and include the exact quote it's based on.`;
+
         let aiResponseText;
         try {
-            console.log(`[${new Date().toISOString()}] - Sending text to Gemini API for analysis...`);
+            console.log('Sending text to Gemini API for analysis...');
             const result = await model.generateContent([systemPrompt, scrapedText]);
             aiResponseText = result.response.text();
-            console.log(`[${new Date().toISOString()}] - Received analysis from Gemini API.`);
+            console.log('Received analysis from Gemini API.');
         } catch (aiError) {
             console.error('--- ERROR DURING GEMINI API CALL ---');
             console.error('AI Error Message:', aiError.message);
             throw new Error(`Gemini API Error: ${aiError.message}`);
         }
         
-        console.log('Attempting to parse JSON from AI response...');
+        console.log('Attempting to parse JSON...');
         let analysisResult;
         try {
-            // With JSON mode enabled, the response text is a clean JSON string.
-            analysisResult = JSON.parse(aiResponseText);
+            const jsonMatch = aiResponseText.match(/\{[\s\S]*\}/);
+            if (!jsonMatch) throw new Error('invalid JSON: No JSON object found in AI response.');
+            analysisResult = JSON.parse(jsonMatch[0]);
             console.log('JSON parsed successfully.');
         } catch (parseError) {
             console.error('JSON parsing failed:', parseError.message);
-            console.error('Raw AI response text:', aiResponseText); // Log the raw text for debugging
-            throw new Error('invalid JSON: The AI returned a malformed JSON response.');
+            throw new Error('invalid JSON: ' + parseError.message);
         }
         
         console.log('Sending final successful response.');
@@ -161,9 +155,8 @@ export default async (req, res) => {
         });
 
     } catch (error) {
-        console.error(`[${new Date().toISOString()}] - --- A CRITICAL ERROR OCCURRED IN THE MAIN FUNCTION ---`);
-        console.error(`[${new Date().toISOString()}] - Error Message:`, error.message);
-        console.error(`[${new Date().toISOString()}] - Error Stack:`, error.stack);
+        console.error('--- A CRITICAL ERROR OCCURRED IN THE MAIN FUNCTION ---');
+        console.error('Error Message:', error.message);
         
         let userErrorMessage = 'An unknown server error occurred.';
         if (error.isAxiosError) {
