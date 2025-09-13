@@ -1,5 +1,5 @@
 import axios from 'axios';
-import cheerio from 'cheerio';
+import { load } from 'cheerio'; // Explicitly import cheerio.load
 import { GoogleGenerativeAI } from '@google/generative-ai';
 
 export default async (req, res) => {
@@ -22,9 +22,18 @@ export default async (req, res) => {
         
         console.log(`Received URL: ${url}`);
 
-        if (url.includes('arxiv.org/abs/')) {
-            url = url.replace('/abs/', '/html/');
-            console.log(`Converted arXiv URL to: ${url}`);
+        // Normalize arXiv URLs to /abs/ format and remove .pdf extension
+        if (url.includes('arxiv.org')) {
+            if (url.includes('/html/')) {
+                url = url.replace('/html/', '/abs/').replace(/\.pdf$/, '');
+                console.log(`Converted arXiv HTML URL to: ${url}`);
+            } else if (url.includes('/pdf/')) {
+                url = url.replace('/pdf/', '/abs/').replace(/\.pdf$/, '');
+                console.log(`Converted arXiv PDF URL to: ${url}`);
+            } else if (url.includes('/abs/')) {
+                url = url.replace(/\.pdf$/, '');
+                console.log(`Cleaned arXiv ABS URL to: ${url}`);
+            }
         }
 
         console.log(`Attempting to scrape content from: ${url}`);
@@ -39,38 +48,66 @@ export default async (req, res) => {
                 },
                 timeout: 10000 // 10-second timeout
             });
+
+            // Check Content-Type to ensure it's HTML
+            const contentType = response.headers['content-type'] || '';
+            if (!contentType.includes('text/html')) {
+                console.error(`Invalid Content-Type: ${contentType}`);
+                return res.status(400).json({ error: 'Invalid content: The URL points to a non-HTML resource (e.g., PDF). Please use an arXiv abstract page (e.g., https://arxiv.org/abs/2307.12008).' });
+            }
+
             html = response.data;
+            console.log(`Scraping successful. Response length: ${html.length}`);
         } catch (axiosError) {
             console.error('Axios Error:', axiosError.message);
             if (axiosError.response) {
                 console.error('Response Status:', axiosError.response.status);
                 console.error('Response Headers:', axiosError.response.headers);
-                if (axiosError.response.status === 403) {
-                    return res.status(500).json({ error: 'Access denied: The site may require authentication or block automated requests.' });
+                if (axiosError.response.status === 404) {
+                    return res.status(400).json({ error: 'URL not found: The page does not exist. Please check the URL (e.g., https://arxiv.org/abs/2307.12008).' });
+                } else if (axiosError.response.status === 403) {
+                    return res.status(400).json({ error: 'Access denied: The site may require authentication or block automated requests.' });
                 } else if (axiosError.response.status === 429) {
-                    return res.status(500).json({ error: 'Rate limited: Too many requests to the site. Try again later.' });
-                } else if (axiosError.response.status === 404) {
-                    return res.status(500).json({ error: 'URL not found: The page does not exist.' });
+                    return res.status(429).json({ error: 'Rate limited: Too many requests to the site. Try again later.' });
                 }
             }
             throw new Error('Could not access this URL. The site may have a paywall, require a login, or actively block automated analysis tools.');
         }
 
-        const $ = cheerio.load(html);
+        // Initialize Cheerio
+        let $;
+        try {
+            $ = load(html); // Use imported load function
+        } catch (cheerioError) {
+            console.error('Cheerio Error:', cheerioError.message);
+            throw new Error('Failed to parse HTML content.');
+        }
 
         let scrapedText = '';
-        if ($('.abstract').length) scrapedText = $('.abstract').text();
-        else if ($('article').length) scrapedText = $('article').text();
-        else if ($('main').length) scrapedText = $('main').text();
-        else scrapedText = $('body').text();
+        if ($('.abstract').length) {
+            scrapedText = $('.abstract').text();
+            console.log('Extracted text from .abstract');
+        } else if ($('#abstract').length) {
+            scrapedText = $('#abstract').text();
+            console.log('Extracted text from #abstract');
+        } else if ($('article').length) {
+            scrapedText = $('article').text();
+            console.log('Extracted text from article');
+        } else if ($('main').length) {
+            scrapedText = $('main').text();
+            console.log('Extracted text from main');
+        } else {
+            scrapedText = $('body').text();
+            console.log('Extracted text from body (fallback)');
+        }
         
         scrapedText = scrapedText.replace(/\s\s+/g, ' ').trim();
         
         if (!scrapedText || scrapedText.length < 100) {
             console.error('Scraped text too short:', scrapedText.length);
-            throw new Error('Failed to scrape any meaningful text.');
+            throw new Error('Failed to scrape meaningful text from the page.');
         }
-        console.log(`Scraping successful. Text length: ${scrapedText.length}`);
+        console.log(`Scraped text length: ${scrapedText.length}`);
 
         const systemPrompt = `
             You are a highly analytical AI assistant for the "Synaptic Insight Engine." Your task is to analyze the provided text from a scientific paper or tech case study. Your goal is to identify potential exploits, opportunities, knowledge gaps, and underlying growth models.
@@ -119,13 +156,15 @@ export default async (req, res) => {
         
         let userErrorMessage = 'An unknown server error occurred.';
         if (error.isAxiosError) {
-            userErrorMessage = error.message; // Use specific Axios error message
+            userErrorMessage = error.message;
         } else if (error.message.includes('Failed to scrape')) {
             userErrorMessage = 'Could not extract readable text from this URL. The site structure is too complex for the scraper.';
         } else if (error.message.includes('invalid JSON')) {
             userErrorMessage = 'The AI returned a response that could not be understood.';
         } else if (error.message.includes('Gemini API Error')) {
             userErrorMessage = 'The AI analysis failed. This may be a temporary issue with the API.';
+        } else if (error.message.includes('Failed to parse HTML')) {
+            userErrorMessage = 'Failed to parse the page content. Please ensure the URL points to a valid HTML page.';
         }
 
         res.status(500).json({ error: userErrorMessage });

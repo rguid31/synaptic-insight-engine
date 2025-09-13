@@ -430,7 +430,7 @@
                 </div>
                 <div class="button-container">
                     <button type="button" class="random-btn" onclick="loadRandomExample()" aria-label="Load a random example URL">🎲 Try a Random Example</button>
-                    <button type="submit" class="analyze-btn" aria-label="Analyze the provided case study URL">�� Analyze Case Study</button>
+                    <button type="submit" class="analyze-btn" aria-label="Analyze the provided case study URL">💎 Analyze Case Study</button>
                     <button type="button" class="reset-btn" onclick="resetUI()" aria-label="Reset the analysis fields">🔄 Reset</button>
                 </div>
             </form>
@@ -594,8 +594,15 @@
                 return;
             }
 
+            // Validate URL format
+            if (url.includes('arxiv.org') && url.includes('.pdf')) {
+                showToast('Please use an arXiv abstract URL (e.g., https://arxiv.org/abs/2307.12008), not a PDF.', true);
+                errorDiv.textContent = 'Please use an arXiv abstract URL (e.g., https://arxiv.org/abs/2307.12008), not a PDF.';
+                return;
+            }
+
             resetUI(true);
-            updateLoadingText('Processing neural pathways...');
+            updateLoadingText('Fetching and analyzing arXiv content...');
             try {
                 const response = await fetch('/api/analyze', {
                     method: 'POST',
@@ -604,7 +611,14 @@
                 });
                 if (!response.ok) {
                     const text = await response.text();
-                    throw new Error(`HTTP error! Status: ${response.status}, Body: ${text}`);
+                    let errorMessage = `HTTP error! Status: ${response.status}, Body: ${text}`;
+                    try {
+                        const errorData = JSON.parse(text);
+                        errorMessage = errorData.error || errorMessage;
+                    } catch (e) {
+                        // Non-JSON response
+                    }
+                    throw new Error(errorMessage);
                 }
                 const data = await response.json();
                 currentAnalysisResult = data;
@@ -614,8 +628,16 @@
                 showToast('Analysis complete!');
             } catch (error) {
                 console.error('Error during analysis:', error);
-                showToast(error.message, true);
-                errorDiv.textContent = error.message;
+                let userMessage = error.message;
+                if (userMessage.includes('URL not found')) {
+                    userMessage += ' Ensure the arXiv URL is valid (e.g., https://arxiv.org/abs/2307.12008).';
+                } else if (userMessage.includes('non-HTML resource')) {
+                    userMessage += ' Use an arXiv abstract page (e.g., https://arxiv.org/abs/2307.12008).';
+                } else if (userMessage.includes('Access denied') || userMessage.includes('paywall')) {
+                    userMessage += ' Try an arXiv abstract URL (e.g., https://arxiv.org/abs/2307.12008) for best results.';
+                }
+                showToast(userMessage, true);
+                errorDiv.textContent = userMessage;
             } finally {
                 loadingDiv.style.display = 'none';
             }
@@ -686,13 +708,13 @@
 
         function loadRandomExample() {
             const examples = [
-                { url: 'https://arxiv.org/html/2307.12008v2' },
-                { url: 'https://www.nature.com/articles/s41586-023-06189-9' },
-                { url: 'https://www.science.org/doi/10.1126/science.adi0517' }
+                { url: 'https://arxiv.org/abs/2307.12008' },
+                { url: 'https://arxiv.org/abs/2409.02098' },
+                { url: 'https://arxiv.org/abs/2303.08774' }
             ];
             const randomExample = examples[Math.floor(Math.random() * examples.length)];
             urlInput.value = randomExample.url;
-            showToast('Random example URL loaded. Click "Analyze" to proceed.');
+            showToast('Random arXiv abstract URL loaded. Click "Analyze" to proceed.');
         }
 
         function highlightTextInString(text) {
@@ -741,7 +763,7 @@ Address the primary knowledge gap: "${gaps.length > 0 ? gaps[0].split('"')[1] ||
 Focus on the core legitimate opportunity: "${opportunities.length > 0 ? opportunities[0].split('"')[1] || 'The underlying scientific principle' : 'The underlying scientific principle'}".
 
 3. Proposed MVP Features:
-------------------------
+-------------------------
 * A public data dashboard to transparently display experimental results.
 * An open-source simulation model of the core scientific mechanism.
 * A peer-review submission portal to gather external validation.
