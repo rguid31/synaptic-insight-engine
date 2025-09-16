@@ -90,15 +90,55 @@ export default async (req, res) => {
         }
 
         let scrapedText = '';
-        if ($('.abstract').length) {
-            scrapedText = $('.abstract').text();
-            console.log('Extracted text from .abstract');
-        } else if ($('#abstract').length) {
-            scrapedText = $('#abstract').text();
-            console.log('Extracted text from #abstract');
+
+        // Enhanced extraction for research papers - structured approach
+        let extractedData = {};
+
+        if ($('.abstract').length || $('#abstract').length) {
+            // Extract title
+            const titleElement = $('h1, .title, .article-title, .ltx_title, .citation_title').first();
+            extractedData.title = titleElement.text().trim() || 'Title not found';
+
+            // Extract authors
+            const authorsElement = $('.authors, .author, .ltx_authors, .citation_author');
+            let authorsText = '';
+            if (authorsElement.length) {
+                authorsText = authorsElement.text().trim();
+            }
+            extractedData.authors = authorsText || 'Authors not found';
+
+            // Extract abstract
+            const abstractElement = $('.abstract, #abstract');
+            extractedData.abstract = abstractElement.text().trim() || 'Abstract not found';
+
+            // Extract publication info (arXiv specific)
+            const arxivId = url.match(/arxiv\.org\/abs\/([^\/]+)/);
+            if (arxivId) {
+                extractedData.arxiv_id = arxivId[1];
+                extractedData.venue = 'arXiv';
+            }
+
+            // Extract subjects/categories
+            const subjectElement = $('.tablecell.subjects, .subj-class');
+            if (subjectElement.length) {
+                extractedData.subjects = subjectElement.text().trim();
+            }
+
+            // Extract full content for analysis (combining key sections)
+            scrapedText = `Title: ${extractedData.title}\nAuthors: ${extractedData.authors}\nAbstract: ${extractedData.abstract}`;
+
+            if (extractedData.subjects) {
+                scrapedText += `\nSubjects: ${extractedData.subjects}`;
+            }
+
+            console.log('Extracted structured academic paper content');
         } else if ($('article').length) {
-            scrapedText = $('article').text();
-            console.log('Extracted text from article');
+            // Try to get full paper content for analysis
+            const titleText = $('h1, .title, .article-title').first().text();
+            const abstractText = $('article .abstract, article #abstract').text();
+            const bodyText = $('article').text();
+            scrapedText = abstractText ? `Title: ${titleText}\n\nAbstract: ${abstractText}\n\nFull Content: ${bodyText}` : `Title: ${titleText}\n\n${bodyText}`;
+            console.log('Extracted full article content');
         } else if ($('main').length) {
             scrapedText = $('main').text();
             console.log('Extracted text from main');
@@ -115,14 +155,99 @@ export default async (req, res) => {
         }
         console.log(`Scraped text length: ${scrapedText.length}`);
 
-        const systemPrompt = `You are a highly analytical AI assistant for the "Synaptic Insight Engine." Your task is to analyze the provided text from a scientific paper or tech case study. Your goal is to identify potential exploits, opportunities, knowledge gaps, and underlying growth models.
-        Analyze the following text and respond ONLY with a valid JSON object. Do not include any explanatory text, comments, or markdown formatting like \`\`\`json.
-        The JSON object must have these four keys: "exploits", "opportunities", "gaps", "models".
-        - Each key must have an array of strings as its value.
-        - "exploits": Identify hyperbolic buzzwords, claims that lack evidence (e.g., "secret formula," "data is confidential"), and red flags that suggest marketing over science. Each finding should be a complete sentence and include the exact quote it's based on, like: 'The claim of a "secret formula" is an exploit because it lacks scientific transparency.'
-        - "opportunities": Identify the core technology or scientific principle that has legitimate potential, even if the claims are exaggerated. Each finding should be a complete sentence and include the exact quote it's based on.
-        - "gaps": Identify what's missing, such as a lack of peer-reviewed data, an unexplained scientific mechanism, or missing trial information. Each finding should be a complete sentence and include the exact quote or concept it's based on.
-        - "models": Identify any phrases that suggest a specific type of growth or improvement model (e.g., "exponential growth," "10x improvement"). Each finding should be a complete sentence and include the exact quote it's based on.`;
+        // First, extract structured data from the paper
+        const structuredPrompt = `Extract structured information from this research paper and return ONLY a valid JSON array following this exact format:
+
+[
+  {
+    "section": "title",
+    "content": "extracted title here"
+  },
+  {
+    "section": "authors",
+    "content": {
+      "main": "main institution or first author",
+      "contributors": ["author1", "author2", "..."]
+    }
+  },
+  {
+    "section": "abstract",
+    "content": "extracted abstract here"
+  },
+  {
+    "section": "publication_info",
+    "content": {
+      "year": extracted_year_or_null,
+      "venue": "venue name",
+      "identifier": "paper identifier",
+      "publisher": "publisher name"
+    }
+  },
+  {
+    "section": "keywords",
+    "content": ["keyword1", "keyword2", "keyword3"]
+  },
+  {
+    "section": "methods",
+    "content": ["method1", "method2", "method3"]
+  },
+  {
+    "section": "results",
+    "content": ["result1", "result2", "result3"]
+  },
+  {
+    "section": "limitations",
+    "content": ["limitation1", "limitation2", "limitation3"]
+  }
+]
+
+Extract information from this text: ${scrapedText}`;
+
+        let structuredData;
+        try {
+            console.log('Extracting structured data...');
+            const structuredResult = await model.generateContent([structuredPrompt]);
+            const structuredText = structuredResult.response.text();
+            const jsonMatch = structuredText.match(/\[[\s\S]*\]/);
+            if (jsonMatch) {
+                structuredData = JSON.parse(jsonMatch[0]);
+                console.log('Structured data extracted successfully');
+            } else {
+                console.log('Failed to extract structured data, using fallback');
+                structuredData = null;
+            }
+        } catch (structuredError) {
+            console.error('Structured extraction failed:', structuredError.message);
+            structuredData = null;
+        }
+
+        const systemPrompt = `You are a highly analytical AI assistant for the "Synaptic Insight Engine." Your task is to analyze the provided research paper text and extract key information about potential exploits, scientific opportunities, knowledge gaps, and growth models.
+
+        Analyze the following research paper content and respond ONLY with a valid JSON object. Do not include any explanatory text, comments, or markdown formatting like \`\`\`json.
+
+        The JSON object must have these six keys: "exploits", "opportunities", "gaps", "models", "ethical_concerns", "reproducibility_issues".
+        - Each key must have an array of objects as its value.
+        - Provide 5-7 detailed, actionable findings per category.
+        - Each finding must be an object with the following structure:
+        {
+          "rank": 1-5 (1=highest priority, 5=lowest priority),
+          "status": "CRITICAL" | "HIGH" | "MODERATE" | "LOW",
+          "confidence": 0.0-1.0 (confidence in this finding),
+          "tags": ["tag1", "tag2"],
+          "finding": "detailed explanation with exact quotes"
+        }
+
+        - "exploits": Identify unsubstantiated claims, methodological flaws, overstated conclusions, conflicts of interest, or misleading statistical presentations. Tags should include: ["methodology", "claims", "peer-review", "statistics", "conflicts"]. Rank by severity of the flaw.
+
+        - "opportunities": Identify core scientific principles, technologies, or methodologies with legitimate research/commercial potential. Tags should include: ["technology", "commercial", "research", "innovation", "scalability"]. Rank by market/research potential.
+
+        - "gaps": Identify missing elements such as control groups, statistical significance, replication studies, long-term data, sample size issues. Tags should include: ["controls", "statistics", "validation", "data", "methodology"]. Rank by impact on research validity.
+
+        - "models": Identify mathematical models, growth patterns, performance metrics, theoretical frameworks. Tags should include: ["mathematical", "predictive", "performance", "theoretical", "quantitative"]. Rank by model sophistication and applicability.
+
+        - "ethical_concerns": Identify ethical issues, bias, privacy concerns, social implications, fairness issues. Tags should include: ["bias", "privacy", "fairness", "social-impact", "ethics-review"]. Rank by potential societal harm.
+
+        - "reproducibility_issues": Identify missing implementation details, insufficient data sharing, unclear procedures, validation gaps. Tags should include: ["code-availability", "data-sharing", "procedures", "parameters", "validation"]. Rank by impact on reproducibility.`;
 
         let aiResponseText;
         try {
@@ -151,6 +276,7 @@ export default async (req, res) => {
         console.log('Sending final successful response.');
         res.status(200).json({
             sourceText: scrapedText,
+            structuredData: structuredData,
             analysis: analysisResult
         });
 
