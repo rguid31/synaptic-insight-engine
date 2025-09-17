@@ -30,6 +30,7 @@ This project was built from the ground up, demonstrating a full-stack developmen
 | :----------- | :--------------------------------------------------------- |
 | **Frontend** | `HTML5`, `CSS3` (with Flexbox & Grid), `JavaScript (ES6+)` |
 | **Backend** | `Node.js` (adapted for serverless functions)               |
+| **Database**   | `Supabase` (PostgreSQL)                                  |
 | **Deployment** | `Vercel`, `Git & GitHub` (for version control)             |
 | **AI** | `Google Gemini API` (`gemini-1.5-flash`)                   |
 | **Libraries**| `Axios`, `Cheerio`, `@google/generative-ai`                |
