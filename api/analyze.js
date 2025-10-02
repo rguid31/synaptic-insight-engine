@@ -3,6 +3,18 @@ import { load } from 'cheerio';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { transformStructuredData } from '../lib/utils.js';
 
+export const transformStructuredData = (data) => {
+    if (!data || !Array.isArray(data)) {
+        return {};
+    }
+    return data.reduce((obj, item) => {
+        if (item && item.section) {
+            obj[item.section] = item.content;
+        }
+        return obj;
+    }, {});
+};
+
 export default async (req, res) => {
     try {
         console.log("Function started. Checking for API key...");
