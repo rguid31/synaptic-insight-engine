@@ -10,3 +10,18 @@
 
 # Vercel
 .vercel
+/vercel.json
+
+# Build output
+/dist
+/out
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+
+# Other
+.DS_Store
+*.pem

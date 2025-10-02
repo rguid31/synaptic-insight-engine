@@ -1,6 +1,7 @@
 import axios from 'axios';
 import { load } from 'cheerio';
 import { GoogleGenerativeAI } from '@google/generative-ai';
+import { transformStructuredData } from '../lib/utils.js';
 
 export default async (req, res) => {
     try {
@@ -204,20 +205,24 @@ export default async (req, res) => {
 Extract information from this text: ${scrapedText}`;
 
         let structuredData;
+        let structuredText;
         try {
             console.log('Extracting structured data...');
             const structuredResult = await model.generateContent([structuredPrompt]);
-            const structuredText = structuredResult.response.text();
+            structuredText = structuredResult.response.text();
             const jsonMatch = structuredText.match(/\[[\s\S]*\]/);
             if (jsonMatch) {
                 structuredData = JSON.parse(jsonMatch[0]);
                 console.log('Structured data extracted successfully');
             } else {
-                console.log('Failed to extract structured data, using fallback');
+                console.error('Failed to find JSON array in structured data response. Raw response:', structuredText);
                 structuredData = null;
             }
         } catch (structuredError) {
             console.error('Structured extraction failed:', structuredError.message);
+            if (structuredText) {
+                console.error('Raw response that caused error:', structuredText);
+            }
             structuredData = null;
         }
 
@@ -276,7 +281,7 @@ Extract information from this text: ${scrapedText}`;
         console.log('Sending final successful response.');
         res.status(200).json({
             sourceText: scrapedText,
-            structuredData: structuredData,
+            structuredData: transformStructuredData(structuredData),
             analysis: analysisResult
         });
 
