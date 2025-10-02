@@ -1,4 +1,4 @@
-import axios from 'axios';
+const axios = require('axios');
 import { load } from 'cheerio';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { transformStructuredData } from '../lib/utils.js';
