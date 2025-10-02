@@ -1,9 +1,9 @@
 import axios from 'axios';
 import { load } from 'cheerio';
 import { GoogleGenerativeAI } from '@google/generative-ai';
-import { transformStructuredData } from '../lib/utils.js';
 
-export const transformStructuredData = (data) => {
+// Helper function to transform structured data
+const transformStructuredData = (data) => {
     if (!data || !Array.isArray(data)) {
         return {};
     }
@@ -15,7 +15,7 @@ export const transformStructuredData = (data) => {
     }, {});
 };
 
-export default async (req, res) => {
+export default async function handler(req, res) {
     try {
         console.log("Function started. Checking for API key...");
         if (!process.env.GEMINI_API_KEY) {
@@ -62,7 +62,7 @@ export default async (req, res) => {
                         'Accept-Language': 'en-US,en;q=0.5',
                         'Connection': 'keep-alive'
                     },
-                    timeout: 15000 // Increased for Vercel
+                    timeout: 15000
                 });
 
                 const contentType = response.headers['content-type'] || '';
@@ -103,16 +103,12 @@ export default async (req, res) => {
         }
 
         let scrapedText = '';
-
-        // Enhanced extraction for research papers - structured approach
         let extractedData = {};
 
         if ($('.abstract').length || $('#abstract').length) {
-            // Extract title
             const titleElement = $('h1, .title, .article-title, .ltx_title, .citation_title').first();
             extractedData.title = titleElement.text().trim() || 'Title not found';
 
-            // Extract authors
             const authorsElement = $('.authors, .author, .ltx_authors, .citation_author');
             let authorsText = '';
             if (authorsElement.length) {
@@ -120,24 +116,20 @@ export default async (req, res) => {
             }
             extractedData.authors = authorsText || 'Authors not found';
 
-            // Extract abstract
             const abstractElement = $('.abstract, #abstract');
             extractedData.abstract = abstractElement.text().trim() || 'Abstract not found';
 
-            // Extract publication info (arXiv specific)
             const arxivId = url.match(/arxiv\.org\/abs\/([^\/]+)/);
             if (arxivId) {
                 extractedData.arxiv_id = arxivId[1];
                 extractedData.venue = 'arXiv';
             }
 
-            // Extract subjects/categories
             const subjectElement = $('.tablecell.subjects, .subj-class');
             if (subjectElement.length) {
                 extractedData.subjects = subjectElement.text().trim();
             }
 
-            // Extract full content for analysis (combining key sections)
             scrapedText = `Title: ${extractedData.title}\nAuthors: ${extractedData.authors}\nAbstract: ${extractedData.abstract}`;
 
             if (extractedData.subjects) {
@@ -146,7 +138,6 @@ export default async (req, res) => {
 
             console.log('Extracted structured academic paper content');
         } else if ($('article').length) {
-            // Try to get full paper content for analysis
             const titleText = $('h1, .title, .article-title').first().text();
             const abstractText = $('article .abstract, article #abstract').text();
             const bodyText = $('article').text();
@@ -168,7 +159,6 @@ export default async (req, res) => {
         }
         console.log(`Scraped text length: ${scrapedText.length}`);
 
-        // First, extract structured data from the paper
         const structuredPrompt = `Extract structured information from this research paper and return ONLY a valid JSON array following this exact format:
 
 [
@@ -291,7 +281,7 @@ Extract information from this text: ${scrapedText}`;
         }
         
         console.log('Sending final successful response.');
-        res.status(200).json({
+        return res.status(200).json({
             sourceText: scrapedText,
             structuredData: transformStructuredData(structuredData),
             analysis: analysisResult
@@ -314,6 +304,6 @@ Extract information from this text: ${scrapedText}`;
             userErrorMessage = 'Failed to parse the page content. Please ensure the URL points to a valid HTML page.';
         }
 
-        res.status(500).json({ error: userErrorMessage });
+        return res.status(500).json({ error: userErrorMessage });
     }
-};
+}
