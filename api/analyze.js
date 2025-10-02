@@ -1,6 +1,7 @@
 import axios from 'axios';
 import { load } from 'cheerio';
 import { GoogleGenerativeAI } from '@google/generative-ai';
+import { transformStructuredData } from '../lib/utils.js';
 
 export const transformStructuredData = (data) => {
     if (!data || !Array.isArray(data)) {
