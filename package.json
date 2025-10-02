@@ -4,7 +4,8 @@
   "description": "An AI-powered web application to analyze scientific papers.",
   "main": "index.html",
   "scripts": {
-    "start": "vercel dev"
+    "start": "vercel dev",
+    "test": "jest"
   },
   "author": "Ryan Guidry",
   "license": "MIT",
@@ -19,5 +20,10 @@
   },
   "engines": {
     "node": "22.x"
+  },
+  "devDependencies": {
+    "@babel/preset-env": "^7.28.3",
+    "babel-jest": "^30.2.0",
+    "jest": "^30.2.0"
   }
 }
