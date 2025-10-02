@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "description": "An AI-powered web application to analyze scientific papers.",
   "main": "index.html",
+  "type": "module",
   "scripts": {
     "start": "vercel dev",
     "test": "jest"
