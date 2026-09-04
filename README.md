@@ -1,77 +1,75 @@
 # Synaptic Insight Engine
 
-[![Vercel Deployment](https://img.shields.io/badge/Deployment-Vercel-black?style=for-the-badge&logo=vercel)](https://synaptic-insight-engine.vercel.app/)
+AI-assisted web application for analyzing scientific papers and technology case studies from a URL.
 
-**Live Demo:** [**synaptic-insight-engine.vercel.app**](https://synaptic-insight-engine.vercel.app)
+**Live demo:** https://synaptic-insight-engine.vercel.app
 
----
+![Synaptic Insight Engine screenshot](https://github.com/user-attachments/assets/12a217ad-79bd-4612-8ff4-95f11e0766d2)
 
-An AI-powered web application designed to analyze scientific papers and tech case studies. The engine scrapes content from a provided URL, identifies potential red flags, uncovers legitimate opportunities, and generates a strategic MVP blueprint based on its findings.
+## What it does
 
-This project was built from the ground up, demonstrating a full-stack development process from front-end UI/UX design to backend AI integration and serverless deployment.
+Synaptic Insight Engine fetches content from a user-provided URL and uses the Google Gemini API to organize the material into a structured analysis. The application is designed to surface questionable claims, legitimate opportunities, knowledge gaps, and possible MVP directions.
 
-![Synaptic Insight Engine Screenshot](https://github.com/user-attachments/assets/12a217ad-79bd-4612-8ff4-95f11e0766d2)
+### Key features
 
-### Key Features
+- Fetches and parses article or case-study content from a URL
+- Uses Gemini for structured AI-assisted analysis
+- Highlights claims, opportunities, missing information, and growth-model considerations
+- Generates an MVP-oriented blueprint from the analysis
+- Provides a responsive browser interface with dynamic results
+- Runs on Vercel using serverless API functions
 
-* **Real-Time Web Scraping:** Utilizes a Node.js backend to fetch and parse article content directly from user-provided URLs.
-* **AI-Powered Analysis:** Leverages the Google Gemini API to perform a deep contextual analysis of the scraped text, identifying:
-    * Exploits & Unscientific Claims
-    * Legitimate Opportunities & Core Technologies
-    * Knowledge Gaps & Missing Data
-    * Underlying Growth Models
-* **Interactive UI:** A polished, fully responsive front-end with interactive elements like a domain carousel, toast notifications, and dynamic content highlighting.
-* **Blueprint Generation:** Automatically generates a downloadable MVP (Minimum Viable Product) blueprint based on the AI's analysis.
-* **Serverless Deployment:** A modern full-stack architecture deployed on Vercel, using serverless functions for the backend API.
+## Tech stack
 
-### Tech Stack
+- **Frontend:** HTML5, CSS3, JavaScript
+- **Backend:** Node.js serverless functions
+- **AI:** Google Gemini API
+- **Data:** Supabase / PostgreSQL
+- **Libraries:** Axios, Cheerio, `@google/generative-ai`
+- **Deployment:** Vercel
+- **Version control:** Git and GitHub
 
-| Category     | Technology                                                 |
-| :----------- | :--------------------------------------------------------- |
-| **Frontend** | `HTML5`, `CSS3` (with Flexbox & Grid), `JavaScript (ES6+)` |
-| **Backend** | `Node.js` (adapted for serverless functions)               |
-| **Database**   | `Supabase` (PostgreSQL)                                  |
-| **Deployment** | `Vercel`, `Git & GitHub` (for version control)             |
-| **AI** | `Google Gemini API` (`gemini-1.5-flash`)                   |
-| **Libraries**| `Axios`, `Cheerio`, `@google/generative-ai`                |
+## Local setup
 
----
+1. Clone the repository:
 
-### Local Setup & Installation
+```bash
+git clone https://github.com/rguid31/synaptic-insight-engine.git
+cd synaptic-insight-engine
+```
 
-To run this project on your local machine, follow these steps:
+2. Install dependencies:
 
-1.  **Clone the repository:**
-    ```bash
-    git clone [https://github.com/rguid31/synaptic-insight-engine.git](https://github.com/rguid31/synaptic-insight-engine.git)
-    cd synaptic-insight-engine
-    ```
+```bash
+npm install
+```
 
-2.  **Install dependencies:**
-    This project uses Node.js. The `package.json` file in the root directory lists all necessary dependencies.
-    ```bash
-    npm install
-    ```
+3. Create a local environment file from the example:
 
-3.  **Set up your Environment Variables:**
-    The backend requires a secret API key for the Google Gemini API.
-    * Create a new file in the root directory named `.env`.
-    * Add your API key to this file:
-        ```
-        GEMINI_API_KEY=YOUR_SECRET_API_KEY_HERE
-        ```
+```bash
+cp .env.example .env
+```
 
-4.  **Run the application:**
-    This project uses Vercel's CLI for a local development experience that mirrors the production environment.
-    ```bash
-    vercel dev
-    ```
-    The application will be available at a local URL provided by the command, typically `http://localhost:3000`.
+Add your Gemini API key to `.env`:
 
-### Author
+```text
+GEMINI_API_KEY=YOUR_SECRET_API_KEY_HERE
+```
 
-**Ryan Guidry** - A self-taught developer passionate about building innovative and user-centric web applications.
+4. Run the project locally with the Vercel CLI:
 
-* **Portfolio:** [rguidry.dev](https://rguidry.dev)
-* **LinkedIn:** [linkedin.com/in/rmguidry](https://linkedin.com/in/rmguidry)
-* **GitHub:** [@rguid31](https://github.com/rguid31)
+```bash
+vercel dev
+```
+
+## Project status
+
+Active portfolio project. Features and implementation may continue to evolve.
+
+## Author
+
+Ryan Guidry
+
+- Portfolio: https://ryanguidry.com
+- LinkedIn: https://www.linkedin.com/in/rmguidry
+- GitHub: https://github.com/rguid31
