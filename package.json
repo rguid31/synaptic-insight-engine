@@ -1,7 +1,7 @@
 {
   "name": "synaptic-insight-engine",
   "version": "1.0.0",
-  "description": "An AI-powered web application to analyze scientific papers.",
+  "description": "AI-assisted web application for analyzing scientific papers and technology case studies from a URL.",
   "main": "index.html",
   "scripts": {
     "start": "vercel dev",
