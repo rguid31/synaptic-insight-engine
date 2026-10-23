@@ -185,7 +185,7 @@
                 return `<div class="${baseClass}">${highlightTextInString(item)}</div>`;
             }
 
-            const status = item.status || getRankStatus(item.rank);
+            const status = getItemStatus(item);
             const statusClass = getStatusClass(status);
             const confidenceClass = getConfidenceClass(item.confidence);
             const rankBadge = `<span class="rank-badge rank-${item.rank}">#${item.rank}</span>`;
@@ -216,6 +216,10 @@
             if (rank === 2) return 'HIGH';
             if (rank === 3) return 'MODERATE';
             return 'LOW';
+        }
+
+        function getItemStatus(item) {
+            return item?.status || getRankStatus(item?.rank);
         }
 
         function getStatusClass(status) {
@@ -294,7 +298,7 @@
 
             // Methodological Rigor (0-100) - penalized by exploits and gaps
             const criticalExploits = exploits.filter(item =>
-                (typeof item === 'object' && item.status === 'CRITICAL') ||
+                (typeof item === 'object' && getItemStatus(item) === 'CRITICAL') ||
                 (typeof item === 'string' && item.includes('critical'))
             ).length;
             const methodologicalGaps = gaps.filter(item => {
@@ -307,14 +311,14 @@
 
             // Reproducibility (0-100) - based on reproducibility issues
             const criticalRepro = reproducibilityIssues.filter(item =>
-                (typeof item === 'object' && item.status === 'CRITICAL') ||
+                (typeof item === 'object' && getItemStatus(item) === 'CRITICAL') ||
                 (typeof item === 'string')
             ).length;
             scoring.reproducibility = Math.max(0, 100 - (criticalRepro * 20));
 
             // Ethical Compliance (0-100) - penalized by ethical concerns
             const criticalEthical = ethicalConcerns.filter(item =>
-                (typeof item === 'object' && (item.status === 'CRITICAL' || item.status === 'HIGH')) ||
+                (typeof item === 'object' && ['CRITICAL', 'HIGH'].includes(getItemStatus(item))) ||
                 (typeof item === 'string')
             ).length;
             scoring.ethical_compliance = Math.max(0, 100 - (criticalEthical * 18));
@@ -339,7 +343,7 @@
 
             // Innovation Potential (0-100) - boosted by high-quality opportunities
             const highValueOpportunities = opportunities.filter(item =>
-                (typeof item === 'object' && (item.status === 'HIGH' || item.rank <= 2)) ||
+                (typeof item === 'object' && (getItemStatus(item) === 'HIGH' || item.rank <= 2)) ||
                 (typeof item === 'string')
             ).length;
             scoring.innovation_potential = Math.min(100, 40 + (highValueOpportunities * 15));
@@ -869,7 +873,7 @@
                         if (typeof item === 'object') {
                             const finding = getItemText(item).replace(/"/g, '""');
                             const tags = Array.isArray(item.tags) ? item.tags.join(';') : '';
-                            csvContent += `"${category}","${item.rank || ''}","${item.status || ''}","${tags}","${finding}",""\n`;
+                            csvContent += `"${category}","${item.rank || ''}","${getItemStatus(item)}","${tags}","${finding}",""\n`;
                         } else {
                             csvContent += `"${category}","","","","${item.replace(/"/g, '""')}",""\n`;
                         }
@@ -918,7 +922,7 @@
 
                     items.forEach((item, index) => {
                         if (typeof item === 'object') {
-                            pdfContent += `${index + 1}. [Rank ${item.rank || 'N/A'}] [${item.status || 'N/A'}] `;
+                            pdfContent += `${index + 1}. [Rank ${item.rank || 'N/A'}] [${getItemStatus(item)}] `;
                             pdfContent += `${getItemText(item)}\n\n`;
                         } else {
                             pdfContent += `${index + 1}. ${item}\n\n`;
