@@ -1,10 +1,8 @@
 jest.mock('ai', () => ({
-    generateText: jest.fn(),
-    jsonSchema: jest.fn(schema => schema),
-    Output: { object: jest.fn(({ schema }) => schema) }
+    generateText: jest.fn()
 }));
 
-import handler, { extractSourceData, normalizeSourceUrl } from './analyze.js';
+import handler, { extractSourceData, normalizeSourceUrl, parseAnalysisText } from './analyze.js';
 
 function createResponse() {
     return {
@@ -57,6 +55,25 @@ describe('extractSourceData', () => {
         expect(result.sourceText).toContain('Title: A Useful Paper');
         expect(result.sourceText).toContain('Ada Lovelace');
         expect(result.structuredData).toContainEqual({ section: 'title', content: 'A Useful Paper' });
+    });
+});
+
+describe('parseAnalysisText', () => {
+    const analysis = Object.fromEntries([
+        'exploits',
+        'opportunities',
+        'gaps',
+        'models',
+        'ethical_concerns',
+        'reproducibility_issues'
+    ].map(key => [key, []]));
+
+    it('extracts a valid JSON object from surrounding model text', () => {
+        expect(parseAnalysisText(`Result:\n\`\`\`json\n${JSON.stringify(analysis)}\n\`\`\``)).toEqual(analysis);
+    });
+
+    it('rejects incomplete analysis objects', () => {
+        expect(() => parseAnalysisText('{"exploits":[]}')).toThrow('expected analysis format');
     });
 });
 

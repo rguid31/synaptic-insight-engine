@@ -1,9 +1,9 @@
 import { load } from 'cheerio';
-import { generateText, jsonSchema, Output } from 'ai';
+import { generateText } from 'ai';
 
 export const config = { maxDuration: 60 };
 
-const MODEL_NAME = process.env.AI_MODEL || 'reflection/beam-free';
+const MODEL_NAME = process.env.AI_MODEL || 'nvidia/nemotron-3.5-lightning-free';
 const REQUEST_TIMEOUT_MS = 12000;
 const MAX_SOURCE_CHARS = 50000;
 const MAX_RESPONSE_BYTES = 5 * 1024 * 1024;
@@ -253,10 +253,24 @@ function validateAnalysis(value) {
     return value;
 }
 
+export function parseAnalysisText(text) {
+    if (typeof text !== 'string' || !text.trim()) {
+        throw new Error('The AI returned an empty response.');
+    }
+
+    const firstBrace = text.indexOf('{');
+    const lastBrace = text.lastIndexOf('}');
+    if (firstBrace === -1 || lastBrace <= firstBrace) {
+        throw new Error('The AI response did not contain a JSON object.');
+    }
+
+    return validateAnalysis(JSON.parse(text.slice(firstBrace, lastBrace + 1)));
+}
+
 async function analyzeText(sourceText) {
     const prompt = `Analyze the research paper or technology case study below for the Synaptic Insight Engine.
 
-Return 3-5 detailed, evidence-based findings in each category. Every finding must quote or precisely reference the source text. Use rank 1 for the highest priority and 5 for the lowest.
+Return only one valid JSON object, without Markdown fences or commentary. Return 3-5 detailed, evidence-based findings in each category. Every finding must quote or precisely reference the source text. Use rank 1 for the highest priority and 5 for the lowest.
 
 - exploits: unsubstantiated claims, methodological flaws, overstated conclusions, conflicts, or misleading statistics.
 - opportunities: legitimate technologies, methods, or commercial/research opportunities.
@@ -265,21 +279,14 @@ Return 3-5 detailed, evidence-based findings in each category. Every finding mus
 - ethical_concerns: bias, privacy, fairness, safety, or social implications.
 - reproducibility_issues: missing code, data, parameters, procedures, or independent validation.
 
+Use exactly this shape for every item:
+{"exploits":[{"title":"...","description":"...","rank":1}],"opportunities":[{"title":"...","description":"...","rank":1}],"gaps":[{"title":"...","description":"...","rank":1}],"models":[{"title":"...","description":"...","rank":1}],"ethical_concerns":[{"title":"...","description":"...","rank":1}],"reproducibility_issues":[{"title":"...","description":"...","rank":1}]}
+
 SOURCE TEXT:
 ${sourceText}`;
-    const schema = jsonSchema(analysisSchema, {
-        validate(value) {
-            try {
-                return { success: true, value: validateAnalysis(value) };
-            } catch (error) {
-                return { success: false, error };
-            }
-        }
-    });
-    const { output } = await generateText({
+    const { text } = await generateText({
         model: MODEL_NAME,
         prompt,
-        output: Output.object({ schema }),
         temperature: 0.2,
         maxOutputTokens: 8192,
         maxRetries: 1,
@@ -291,8 +298,7 @@ ${sourceText}`;
         }
     });
 
-    if (!output) throw new Error('The AI returned an empty response.');
-    return validateAnalysis(output);
+    return parseAnalysisText(text);
 }
 
 export default async function handler(req, res) {
