@@ -185,10 +185,11 @@
                 return `<div class="${baseClass}">${highlightTextInString(item)}</div>`;
             }
 
-            const statusClass = getStatusClass(item.status);
+            const status = item.status || getRankStatus(item.rank);
+            const statusClass = getStatusClass(status);
             const confidenceClass = getConfidenceClass(item.confidence);
             const rankBadge = `<span class="rank-badge rank-${item.rank}">#${item.rank}</span>`;
-            const statusBadge = `<span class="status-badge ${statusClass}">${item.status}</span>`;
+            const statusBadge = `<span class="status-badge ${statusClass}">${status}</span>`;
             const confidenceBadge = item.confidence ? `<span class="confidence-badge ${confidenceClass}">${Math.round(item.confidence * 100)}%</span>` : '';
             const tagsBadges = item.tags ? item.tags.map(tag => `<span class="tag-badge">${tag}</span>`).join('') : '';
 
@@ -200,9 +201,21 @@
                         ${confidenceBadge}
                         <div class="tags-container">${tagsBadges}</div>
                     </div>
-                    <div class="item-content">${highlightTextInString(item.finding || item)}</div>
+                    <div class="item-content"><strong>${item.title || ''}</strong>${item.title ? '<br>' : ''}${highlightTextInString(getItemText(item))}</div>
                 </div>
             `;
+        }
+
+        function getItemText(item) {
+            if (typeof item === 'string') return item;
+            return item?.description || item?.finding || item?.content || item?.title || '';
+        }
+
+        function getRankStatus(rank) {
+            if (rank === 1) return 'CRITICAL';
+            if (rank === 2) return 'HIGH';
+            if (rank === 3) return 'MODERATE';
+            return 'LOW';
         }
 
         function getStatusClass(status) {
@@ -285,7 +298,7 @@
                 (typeof item === 'string' && item.includes('critical'))
             ).length;
             const methodologicalGaps = gaps.filter(item => {
-                const content = typeof item === 'object' ? item.finding : item;
+                const content = getItemText(item);
                 return content.toLowerCase().includes('control') ||
                        content.toLowerCase().includes('methodology') ||
                        content.toLowerCase().includes('sample');
@@ -308,7 +321,7 @@
 
             // Statistical Validity (0-100) - based on statistical gaps and model quality
             const statisticalIssues = gaps.filter(item => {
-                const content = typeof item === 'object' ? item.finding : item;
+                const content = getItemText(item);
                 return content.toLowerCase().includes('statistical') ||
                        content.toLowerCase().includes('significance') ||
                        content.toLowerCase().includes('p-value');
@@ -317,7 +330,7 @@
 
             // Transparency (0-100) - based on data sharing and openness issues
             const transparencyIssues = reproducibilityIssues.filter(item => {
-                const content = typeof item === 'object' ? item.finding : item;
+                const content = getItemText(item);
                 return content.toLowerCase().includes('data') ||
                        content.toLowerCase().includes('code') ||
                        content.toLowerCase().includes('sharing');
@@ -854,7 +867,7 @@
                 if (Array.isArray(items)) {
                     items.forEach(item => {
                         if (typeof item === 'object') {
-                            const finding = (item.finding || '').replace(/"/g, '""');
+                            const finding = getItemText(item).replace(/"/g, '""');
                             const tags = Array.isArray(item.tags) ? item.tags.join(';') : '';
                             csvContent += `"${category}","${item.rank || ''}","${item.status || ''}","${tags}","${finding}",""\n`;
                         } else {
@@ -906,7 +919,7 @@
                     items.forEach((item, index) => {
                         if (typeof item === 'object') {
                             pdfContent += `${index + 1}. [Rank ${item.rank || 'N/A'}] [${item.status || 'N/A'}] `;
-                            pdfContent += `${item.finding || item}\n\n`;
+                            pdfContent += `${getItemText(item)}\n\n`;
                         } else {
                             pdfContent += `${index + 1}. ${item}\n\n`;
                         }
@@ -959,7 +972,7 @@
                     clipboardContent += `${category.toUpperCase().replace('_', ' ')} (${items.length} items):\n`;
                     const topItems = items.slice(0, 3);
                     topItems.forEach((item, index) => {
-                        const content = typeof item === 'object' ? (item.finding || item) : item;
+                        const content = getItemText(item);
                         clipboardContent += `  ${index + 1}. ${content.substring(0, 150)}...\n`;
                     });
                     clipboardContent += '\n';
@@ -1178,7 +1191,7 @@
             // Extract content from new object format or fallback to string format
             const getContent = (item) => {
                 if (typeof item === 'string') return item;
-                return item.finding || item.content || '';
+                return getItemText(item);
             };
 
             const primaryGap = gaps.length > 0 ? getContent(gaps[0]) : 'Lack of verifiable data';
