@@ -8,7 +8,7 @@ AI-assisted web application for analyzing scientific papers and technology case 
 
 ## What it does
 
-Synaptic Insight Engine fetches content from a user-provided URL and routes Google Gemini through Vercel AI Gateway to organize the material into a structured analysis. The application is designed to surface questionable claims, legitimate opportunities, knowledge gaps, and possible MVP directions.
+Synaptic Insight Engine fetches content from a user-provided URL and routes an AI model through Vercel AI Gateway to organize the material into a structured analysis. The application is designed to surface questionable claims, legitimate opportunities, knowledge gaps, and possible MVP directions.
 
 ### Key features
 
@@ -23,7 +23,7 @@ Synaptic Insight Engine fetches content from a user-provided URL and routes Goog
 
 - **Frontend:** HTML5, CSS3, JavaScript
 - **Backend:** Node.js serverless functions
-- **AI:** Google Gemini through Vercel AI Gateway
+- **AI:** A structured-output model through Vercel AI Gateway
 - **Data:** Supabase / PostgreSQL
 - **Libraries:** Cheerio, Vercel AI SDK
 - **Deployment:** Vercel
@@ -54,7 +54,7 @@ vercel env pull .env.local
 The model can be overridden locally if needed:
 
 ```text
-AI_MODEL=google/gemini-3.8-flash
+AI_MODEL=nvidia/nemotron-3.5-lightning-free
 ```
 
 4. Run the project locally with the Vercel CLI:
