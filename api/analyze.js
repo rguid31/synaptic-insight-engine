@@ -284,7 +284,7 @@ Use exactly this shape for every item:
 
 SOURCE TEXT:
 ${sourceText}`;
-    const { text } = await generateText({
+    const result = await generateText({
         model: MODEL_NAME,
         prompt,
         temperature: 0.2,
@@ -298,7 +298,7 @@ ${sourceText}`;
         }
     });
 
-    return parseAnalysisText(text);
+    return parseAnalysisText(result.text || result.reasoningText);
 }
 
 export default async function handler(req, res) {
