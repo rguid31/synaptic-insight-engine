@@ -314,6 +314,7 @@ ${sourceText}`;
     const result = await generateText({
         model: MODEL_NAME,
         prompt,
+        reasoning: 'none',
         temperature: 0.2,
         maxOutputTokens: 8192,
         maxRetries: 1,
