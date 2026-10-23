@@ -8,7 +8,7 @@ AI-assisted web application for analyzing scientific papers and technology case 
 
 ## What it does
 
-Synaptic Insight Engine fetches content from a user-provided URL and uses the Google Gemini API to organize the material into a structured analysis. The application is designed to surface questionable claims, legitimate opportunities, knowledge gaps, and possible MVP directions.
+Synaptic Insight Engine fetches content from a user-provided URL and routes Google Gemini through Vercel AI Gateway to organize the material into a structured analysis. The application is designed to surface questionable claims, legitimate opportunities, knowledge gaps, and possible MVP directions.
 
 ### Key features
 
@@ -23,9 +23,9 @@ Synaptic Insight Engine fetches content from a user-provided URL and uses the Go
 
 - **Frontend:** HTML5, CSS3, JavaScript
 - **Backend:** Node.js serverless functions
-- **AI:** Google Gemini API
+- **AI:** Google Gemini through Vercel AI Gateway
 - **Data:** Supabase / PostgreSQL
-- **Libraries:** Cheerio, `@google/genai`
+- **Libraries:** Cheerio, Vercel AI SDK
 - **Deployment:** Vercel
 - **Version control:** Git and GitHub
 
@@ -44,16 +44,17 @@ cd synaptic-insight-engine
 npm install
 ```
 
-3. Create a local environment file from the example:
+3. Link the Vercel project and pull a short-lived OIDC token for AI Gateway:
 
 ```bash
-cp .env.example .env
+vercel link
+vercel env pull .env.local
 ```
 
-Add your Gemini API key to `.env`:
+The model can be overridden locally if needed:
 
 ```text
-GEMINI_API_KEY=YOUR_SECRET_API_KEY_HERE
+AI_MODEL=google/gemini-3.8-flash
 ```
 
 4. Run the project locally with the Vercel CLI:

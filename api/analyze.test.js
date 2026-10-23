@@ -1,3 +1,9 @@
+jest.mock('ai', () => ({
+    generateText: jest.fn(),
+    jsonSchema: jest.fn(schema => schema),
+    Output: { object: jest.fn(({ schema }) => schema) }
+}));
+
 import handler, { extractSourceData, normalizeSourceUrl } from './analyze.js';
 
 function createResponse() {

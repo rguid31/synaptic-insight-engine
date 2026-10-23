@@ -1,9 +1,9 @@
 import { load } from 'cheerio';
-import { GoogleGenAI } from '@google/genai';
+import { generateText, jsonSchema, Output } from 'ai';
 
 export const config = { maxDuration: 60 };
 
-const MODEL_NAME = process.env.GEMINI_MODEL || 'gemini-3.8-flash';
+const MODEL_NAME = process.env.AI_MODEL || 'google/gemini-3.8-flash';
 const REQUEST_TIMEOUT_MS = 12000;
 const MAX_SOURCE_CHARS = 50000;
 const MAX_RESPONSE_BYTES = 5 * 1024 * 1024;
@@ -254,7 +254,6 @@ function validateAnalysis(value) {
 }
 
 async function analyzeText(sourceText) {
-    const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
     const prompt = `Analyze the research paper or technology case study below for the Synaptic Insight Engine.
 
 Return 3-5 detailed, evidence-based findings in each category. Every finding must quote or precisely reference the source text. Use rank 1 for the highest priority and 5 for the lowest.
@@ -268,32 +267,38 @@ Return 3-5 detailed, evidence-based findings in each category. Every finding mus
 
 SOURCE TEXT:
 ${sourceText}`;
-
-    const response = await ai.models.generateContent({
+    const schema = jsonSchema(analysisSchema, {
+        validate(value) {
+            try {
+                return { success: true, value: validateAnalysis(value) };
+            } catch (error) {
+                return { success: false, error };
+            }
+        }
+    });
+    const { output } = await generateText({
         model: MODEL_NAME,
-        contents: prompt,
-        config: {
-            abortSignal: AbortSignal.timeout(45000),
-            responseMimeType: 'application/json',
-            responseJsonSchema: analysisSchema,
-            temperature: 0.2,
-            maxOutputTokens: 8192
+        prompt,
+        output: Output.object({ schema }),
+        temperature: 0.2,
+        maxOutputTokens: 8192,
+        maxRetries: 1,
+        timeout: 45000,
+        providerOptions: {
+            gateway: {
+                tags: ['feature:paper-analysis', `env:${process.env.VERCEL_ENV || 'development'}`]
+            }
         }
     });
 
-    if (!response.text) throw new Error('The AI returned an empty response.');
-    return validateAnalysis(JSON.parse(response.text));
+    if (!output) throw new Error('The AI returned an empty response.');
+    return validateAnalysis(output);
 }
 
 export default async function handler(req, res) {
     if (req.method !== 'POST') {
         res.setHeader('Allow', 'POST');
         return res.status(405).json({ error: 'Method not allowed. Use POST.' });
-    }
-
-    if (!process.env.GEMINI_API_KEY) {
-        console.error('GEMINI_API_KEY is not configured.');
-        return res.status(503).json({ error: 'The analysis service is not configured. Please try again later.' });
     }
 
     try {
@@ -310,7 +315,10 @@ export default async function handler(req, res) {
         return res.status(200).json({ sourceText, structuredData, analysis });
     } catch (error) {
         console.error('Analysis request failed:', error.message);
-        const statusCode = error.statusCode || (error.name === 'TimeoutError' ? 504 : 500);
+        const providerStatus = Number(error.statusCode);
+        const statusCode = [402, 429, 503].includes(providerStatus)
+            ? providerStatus
+            : (error.name === 'TimeoutError' ? 504 : (error.statusCode || 500));
         const message = statusCode >= 500
             ? 'The analysis could not be completed right now. Please try again.'
             : error.message;
