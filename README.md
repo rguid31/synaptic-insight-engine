@@ -54,7 +54,7 @@ vercel env pull .env.local
 The model can be overridden locally if needed:
 
 ```text
-AI_MODEL=nvidia/nemotron-3.5-lightning-free
+AI_MODEL=reflection/beam-free
 ```
 
 4. Run the project locally with the Vercel CLI:

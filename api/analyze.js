@@ -3,7 +3,7 @@ import { generateText, jsonSchema, Output } from 'ai';
 
 export const config = { maxDuration: 60 };
 
-const MODEL_NAME = process.env.AI_MODEL || 'nvidia/nemotron-3.5-lightning-free';
+const MODEL_NAME = process.env.AI_MODEL || 'reflection/beam-free';
 const REQUEST_TIMEOUT_MS = 12000;
 const MAX_SOURCE_CHARS = 50000;
 const MAX_RESPONSE_BYTES = 5 * 1024 * 1024;
