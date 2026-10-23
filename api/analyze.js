@@ -258,13 +258,40 @@ export function parseAnalysisText(text) {
         throw new Error('The AI returned an empty response.');
     }
 
-    const firstBrace = text.indexOf('{');
-    const lastBrace = text.lastIndexOf('}');
-    if (firstBrace === -1 || lastBrace <= firstBrace) {
-        throw new Error('The AI response did not contain a JSON object.');
+    const candidates = [];
+    let start = -1;
+    let depth = 0;
+    let inString = false;
+    let escaped = false;
+
+    for (let index = 0; index < text.length; index += 1) {
+        const character = text[index];
+        if (inString) {
+            if (escaped) escaped = false;
+            else if (character === '\\') escaped = true;
+            else if (character === '"') inString = false;
+            continue;
+        }
+
+        if (character === '"') inString = true;
+        else if (character === '{') {
+            if (depth === 0) start = index;
+            depth += 1;
+        } else if (character === '}' && depth > 0) {
+            depth -= 1;
+            if (depth === 0 && start !== -1) candidates.push(text.slice(start, index + 1));
+        }
     }
 
-    return validateAnalysis(JSON.parse(text.slice(firstBrace, lastBrace + 1)));
+    for (const candidate of candidates.reverse()) {
+        try {
+            return validateAnalysis(JSON.parse(candidate));
+        } catch {
+            // Reasoning models may emit scratch objects before their final answer.
+        }
+    }
+
+    throw new Error('The AI response did not contain a valid analysis object.');
 }
 
 async function analyzeText(sourceText) {

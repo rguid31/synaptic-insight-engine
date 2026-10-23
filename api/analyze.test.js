@@ -72,8 +72,12 @@ describe('parseAnalysisText', () => {
         expect(parseAnalysisText(`Result:\n\`\`\`json\n${JSON.stringify(analysis)}\n\`\`\``)).toEqual(analysis);
     });
 
+    it('selects the final valid object when reasoning contains multiple objects', () => {
+        expect(parseAnalysisText(`Scratch: {"step":1}\nFinal: ${JSON.stringify(analysis)}\n{"note":"done"}`)).toEqual(analysis);
+    });
+
     it('rejects incomplete analysis objects', () => {
-        expect(() => parseAnalysisText('{"exploits":[]}')).toThrow('expected analysis format');
+        expect(() => parseAnalysisText('{"exploits":[]}')).toThrow('valid analysis object');
     });
 });
 
