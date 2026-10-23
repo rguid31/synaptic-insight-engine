@@ -4,6 +4,7 @@
         const errorDiv = document.getElementById('error');
         const resultsDiv = document.getElementById('results');
         const loadingDiv = document.querySelector('.loading');
+        const analyzeButton = analyzeForm.querySelector('.analyze-btn');
         const blueprintSection = document.getElementById('blueprintSection');
         const blueprintContent = document.getElementById('blueprintContent');
         const sourceTextSection = document.getElementById('sourceTextSection');
@@ -106,10 +107,12 @@
                 return;
             }
 
-            // Validate URL format
-            if (url.includes('arxiv.org') && url.includes('.pdf')) {
-                showToast('Please use an arXiv abstract URL (e.g., https://arxiv.org/abs/2307.12008), not a PDF.', true);
-                errorDiv.textContent = 'Please use an arXiv abstract URL (e.g., https://arxiv.org/abs/2307.12008), not a PDF.';
+            try {
+                const parsedUrl = new URL(url);
+                if (!['http:', 'https:'].includes(parsedUrl.protocol)) throw new Error();
+            } catch {
+                showToast('Please enter a full HTTP or HTTPS URL.', true);
+                errorDiv.textContent = 'Please enter a full HTTP or HTTPS URL.';
                 return;
             }
 
@@ -122,6 +125,9 @@
             // Initialize progress tracking
             startProgressTracking();
             updateLoadingText('🔍 Fetching research paper content...');
+            analyzeButton.disabled = true;
+            analyzeButton.setAttribute('aria-busy', 'true');
+            analyzeButton.textContent = '⏳ Analyzing…';
 
             try {
                 const response = await fetch('/api/analyze', {
@@ -167,6 +173,9 @@
             } finally {
                 stopProgressTracking();
                 loadingDiv.style.display = 'none';
+                analyzeButton.disabled = false;
+                analyzeButton.removeAttribute('aria-busy');
+                analyzeButton.textContent = '💎 Analyze Case Study';
             }
         }
 
@@ -496,7 +505,7 @@
             }
 
             try {
-                const { db } = await import('./lib/supabase.js');
+                const { db } = await import('/lib/supabase.js');
 
                 // First, save the analysis if it's not already saved
                 let analysisId = currentAnalysisResult.id;
@@ -591,7 +600,7 @@
             // If user is signed in, check Supabase
             if (currentUser && currentAnalysisResult?.id) {
                 try {
-                    const { db } = await import('./lib/supabase.js');
+                    const { db } = await import('/lib/supabase.js');
                     const { exists } = await db.isBookmarked(currentUser.id, currentAnalysisResult.id);
                     return exists;
                 } catch (error) {
@@ -1403,7 +1412,7 @@ Focus on the core legitimate opportunity: "${primaryOpportunity.substring(0, 200
         async function initializeAuth() {
             try {
                 // Import Supabase modules
-                const { supabase, auth, db, migration } = await import('./lib/supabase.js');
+                const { supabase, auth, db, migration } = await import('/lib/supabase.js');
 
                 // Check for existing session
                 const { user } = await auth.getCurrentUser();
@@ -1625,7 +1634,7 @@ Focus on the core legitimate opportunity: "${primaryOpportunity.substring(0, 200
             errorDiv.style.display = 'none';
 
             try {
-                const { auth } = await import('./lib/supabase.js');
+                const { auth } = await import('/lib/supabase.js');
 
                 let result;
                 if (authMode === 'signup') {
@@ -1755,7 +1764,7 @@ Focus on the core legitimate opportunity: "${primaryOpportunity.substring(0, 200
 
         async function handleSignOut() {
             try {
-                const { auth } = await import('./lib/supabase.js');
+                const { auth } = await import('/lib/supabase.js');
                 await auth.signOut();
                 showToast('Signed out successfully');
             } catch (error) {
@@ -1857,7 +1866,7 @@ Focus on the core legitimate opportunity: "${primaryOpportunity.substring(0, 200
             try {
                 // Load user analytics
                 if (currentUser) {
-                    const { db } = await import('./lib/supabase.js');
+                    const { db } = await import('/lib/supabase.js');
 
                     // Get user analyses
                     const { data: analyses, error: analysesError } = await db.getUserAnalyses(currentUser.id, 100);
@@ -2092,7 +2101,7 @@ Focus on the core legitimate opportunity: "${primaryOpportunity.substring(0, 200
 
                 if (currentUser) {
                     // Load from Supabase
-                    const { db } = await import('./lib/supabase.js');
+                    const { db } = await import('/lib/supabase.js');
                     const { data, error } = await db.getUserBookmarks(currentUser.id);
                     if (!error && data) {
                         bookmarks = data.map(bookmark => ({
@@ -2296,7 +2305,7 @@ Focus on the core legitimate opportunity: "${primaryOpportunity.substring(0, 200
                 showToast('Account deletion initiated. You will be signed out.');
                 setTimeout(async () => {
                     try {
-                        const { auth } = await import('./lib/supabase.js');
+                        const { auth } = await import('/lib/supabase.js');
                         await auth.signOut();
                         navigateToPage('main');
                     } catch (error) {
@@ -2515,16 +2524,4 @@ Focus on the core legitimate opportunity: "${primaryOpportunity.substring(0, 200
             );
 
             return [csvHeaders, ...csvRows].join('\n');
-        }
-
-        function downloadFile(content, filename, mimeType) {
-            const blob = new Blob([content], { type: mimeType });
-            const url = URL.createObjectURL(blob);
-            const link = document.createElement('a');
-            link.href = url;
-            link.download = filename;
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-            URL.revokeObjectURL(url);
         }

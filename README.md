@@ -25,7 +25,7 @@ Synaptic Insight Engine fetches content from a user-provided URL and uses the Go
 - **Backend:** Node.js serverless functions
 - **AI:** Google Gemini API
 - **Data:** Supabase / PostgreSQL
-- **Libraries:** Axios, Cheerio, `@google/generative-ai`
+- **Libraries:** Cheerio, `@google/genai`
 - **Deployment:** Vercel
 - **Version control:** Git and GitHub
 
