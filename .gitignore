@@ -24,3 +24,5 @@ lerna-debug.log*
 # Other
 .DS_Store
 *.pem
+.vercel
+.env*

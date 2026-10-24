@@ -13,11 +13,13 @@ Synaptic Insight Engine resolves a user-provided article URL, reads available ar
 ### Key features
 
 - Reads public HTML and PDF article text
+- Accepts direct PDF uploads up to 4 MB when the user already has the paper
 - Searches Europe PMC, OpenAlex, and Crossref by DOI when the publisher page is unavailable
 - Uses Europe PMC open-access full text or a verified abstract when no full text can be read
 - Uses Vercel AI Gateway for structured AI-assisted analysis
 - Highlights claims, opportunities, missing information, and growth-model considerations
-- Generates an MVP-oriented blueprint from the analysis
+- Generates an evidence-validation and MVP blueprint with verification steps, falsifying signals, experiments, pass conditions, risks, and a 30-day plan
+- Keeps up to 50 completed analyses in browser-local history for quick reopening
 - Provides a responsive browser interface with dynamic results
 - Runs on Vercel using serverless API functions
 

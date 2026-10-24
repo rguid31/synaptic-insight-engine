@@ -9,6 +9,25 @@
 </head>
 <body>
     <div class="neural-bg"></div>
+
+    <button type="button" class="history-toggle" id="historyToggle" aria-controls="historyDrawer" aria-expanded="false">
+        <span aria-hidden="true">🕘</span>
+        <span>History</span>
+        <span class="history-count" id="historyCount">0</span>
+    </button>
+    <div class="history-overlay" id="historyOverlay" hidden></div>
+    <aside class="history-drawer" id="historyDrawer" aria-label="Analysis history" aria-hidden="true">
+        <div class="history-header">
+            <div>
+                <p class="history-eyebrow">Your library</p>
+                <h2>Analysis History</h2>
+            </div>
+            <button type="button" class="history-close" id="historyClose" aria-label="Close analysis history">×</button>
+        </div>
+        <input type="search" class="history-search" id="historySearch" placeholder="Search analyzed publications" aria-label="Search analysis history">
+        <p class="history-storage-note">Saved in this browser. Select an article to reopen its complete analysis.</p>
+        <div class="history-list" id="historyList"></div>
+    </aside>
     
     <div class="container">
         <header>
@@ -25,7 +44,24 @@
 
         <div class="input-section">
             <form id="analyzeForm">
-                <input type="url" class="url-input" id="urlInput" placeholder="Enter case study URL (e.g., https://arxiv.org/abs/1234.56789)" aria-label="Case Study URL Input" required>
+                <div class="source-input-grid">
+                    <div class="source-input-panel">
+                        <label for="urlInput" class="source-input-label">Paste an article URL</label>
+                        <input type="url" class="url-input" id="urlInput" placeholder="https://doi.org/10… or a publisher article URL" aria-label="Article URL Input">
+                        <small>We will look for readable full text and disclose when only an abstract is available.</small>
+                    </div>
+                    <div class="source-divider" aria-hidden="true"><span>or</span></div>
+                    <div class="source-input-panel">
+                        <span class="source-input-label">Upload the full paper</span>
+                        <input type="file" id="pdfInput" class="pdf-input" accept="application/pdf,.pdf">
+                        <label for="pdfInput" class="pdf-drop-zone" id="pdfDropZone">
+                            <span class="pdf-upload-icon" aria-hidden="true">📄</span>
+                            <span id="pdfUploadText"><strong>Choose a PDF</strong> or drop it here</span>
+                            <small>PDF only · maximum 4 MB</small>
+                        </label>
+                        <button type="button" class="pdf-clear" id="pdfClear" hidden>Remove PDF</button>
+                    </div>
+                </div>
                 <div class="features-grid">
                     <div class="features-column">
                         <div>
@@ -96,7 +132,13 @@
         <!-- Main Application Pages -->
         <div id="mainApp" style="display: block;">
             <div class="analysis-results" id="results"></div>
-            <div class="source-text-section" id="sourceTextSection"></div>
+            <div class="source-text-section" id="sourceTextSection">
+                <div class="dropdown-header" onclick="toggleSourceText()">
+                    <h2 class="section-title">📝 Analyzed Source Text</h2>
+                    <span class="dropdown-arrow" id="sourceTextArrow">▼</span>
+                </div>
+                <div class="source-text-content collapsed" id="sourceTextContent"></div>
+            </div>
         </div>
 
         <!-- Dashboard Page -->
@@ -394,12 +436,6 @@
                 </div>
             </div>
         </div>
-            <div class="dropdown-header" onclick="toggleSourceText()">
-                <h2 class="section-title">📝 Analyzed Source Text</h2>
-                <span class="dropdown-arrow" id="sourceTextArrow">▼</span>
-            </div>
-            <div class="source-text-content collapsed" id="sourceTextContent"></div>
-        </div>
 
         <div class="blueprint-section" id="blueprintSection">
             <h2 class="section-title">📋 Generated Blueprint</h2>
@@ -409,7 +445,7 @@
     </div>
     
     <footer>
-        <p>Created by Ryan Guidry 🦄 <a href="https://rguidry.dev" target="_blank" rel="noopener noreferrer" style="color: #27ae60; font-weight: bold;">rguidry.dev</a></p>
+        <p>Created by Ryan Guidry 🦄 <a href="https://ryanguidry.com" target="_blank" rel="noopener noreferrer" style="color: #27ae60; font-weight: bold;">ryanguidry.com</a></p>
         <div class="footer-icons">
             <a href="https://linkedin.com/in/rmguidry" target="_blank" rel="noopener noreferrer" aria-label="Ryan Guidry's LinkedIn Profile">
                 <svg viewBox="0 0 24 24" fill="currentColor"><path d="M19 0h-14c-2.761 0-5 2.239-5 5v14c0 2.761 2.239 5 5 5h14c2.762 0 5-2.239 5-5v-14c0-2.761-2.238-5-5-5zm-11 19h-3v-11h3v11zm-1.5-12.268c-.966 0-1.75-.79-1.75-1.764s.784-1.764 1.75-1.764 1.75.79 1.75 1.764-.783 1.764-1.75 1.764zm13.5 12.268h-3v-5.604c0-3.368-4-3.113-4 0v5.604h-3v-11h3v1.765c1.396-2.586 7-2.777 7 2.476v6.759z"/></svg>

@@ -146,19 +146,49 @@ describe('createFallbackAnalysis', () => {
             'gaps',
             'models',
             'ethical_concerns',
-            'reproducibility_issues'
+            'reproducibility_issues',
+            'blueprint'
         ]);
-        expect(Object.values(fallback).every(items => items.length === 1)).toBe(true);
+        expect([
+            fallback.exploits,
+            fallback.opportunities,
+            fallback.gaps,
+            fallback.models,
+            fallback.ethical_concerns,
+            fallback.reproducibility_issues
+        ].every(items => items.length === 1)).toBe(true);
         expect(fallback.gaps[0].description).toContain('The source reports');
+        expect(fallback.blueprint.evidence_to_verify[0].verification_steps.length).toBeGreaterThan(2);
     });
 });
 
 describe('handler request validation', () => {
     it('returns 405 before checking runtime configuration', async () => {
         const response = createResponse();
-        await handler({ method: 'GET' }, response);
+        await handler({ method: 'GET', headers: {} }, response);
 
         expect(response.statusCode).toBe(405);
         expect(response.headers.Allow).toBe('POST');
+        expect(response.headers['Access-Control-Allow-Origin']).toBe('*');
+    });
+
+    it('rejects a file labeled as PDF when it is not a valid PDF', async () => {
+        const response = createResponse();
+        await handler({
+            method: 'POST',
+            headers: { 'content-type': 'application/octet-stream', 'x-file-name': 'paper.pdf' },
+            body: Buffer.from('not a pdf')
+        }, response);
+
+        expect(response.statusCode).toBe(400);
+        expect(response.body.error).toMatch(/not a valid PDF/i);
+    });
+
+    it('accepts browser preflight requests for local-file testing', async () => {
+        const response = createResponse();
+        await handler({ method: 'OPTIONS', headers: {} }, response);
+
+        expect(response.statusCode).toBe(204);
+        expect(response.headers['Access-Control-Allow-Methods']).toContain('POST');
     });
 });

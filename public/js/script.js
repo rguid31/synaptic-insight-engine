@@ -11,9 +11,24 @@
         const sourceTextContent = document.getElementById('sourceTextContent');
         const carouselPagesContainer = document.getElementById('carouselPages');
         const carouselIndicators = document.getElementById('carouselIndicators');
+        const pdfInput = document.getElementById('pdfInput');
+        const pdfDropZone = document.getElementById('pdfDropZone');
+        const pdfUploadText = document.getElementById('pdfUploadText');
+        const pdfClear = document.getElementById('pdfClear');
+        const historyDrawer = document.getElementById('historyDrawer');
+        const historyOverlay = document.getElementById('historyOverlay');
+        const historyToggle = document.getElementById('historyToggle');
+        const historyClose = document.getElementById('historyClose');
+        const historySearch = document.getElementById('historySearch');
+        const API_ENDPOINT = window.location.protocol === 'file:'
+            ? 'https://synaptic-insight-engine.vercel.app/api/analyze'
+            : '/api/analyze';
+        const MAX_PDF_BYTES = 4 * 1024 * 1024;
 
         // --- GLOBAL STATE ---
         let currentAnalysisResult = null;
+        let currentSourceReference = '';
+        let selectedPdfFile = null;
         let currentPage = 0;
         let analysisHistory = JSON.parse(localStorage.getItem('analysisHistory') || '[]');
         let bookmarkedPapers = JSON.parse(localStorage.getItem('bookmarkedPapers') || '[]');
@@ -98,22 +113,78 @@
             updateCarousel();
         }
 
+        function setPdfDisplay(filename, restored = false) {
+            pdfUploadText.innerHTML = '';
+            const strong = document.createElement('strong');
+            strong.textContent = restored ? `Saved PDF: ${filename}` : filename;
+            pdfUploadText.appendChild(strong);
+            pdfDropZone.classList.add('selected');
+            pdfClear.hidden = false;
+        }
+
+        function clearPdfSelection(clearReference = true) {
+            selectedPdfFile = null;
+            pdfInput.value = '';
+            pdfUploadText.innerHTML = '<strong>Choose a PDF</strong> or drop it here';
+            pdfDropZone.classList.remove('selected', 'dragging');
+            pdfClear.hidden = true;
+            if (clearReference && currentSourceReference.startsWith('pdf:')) currentSourceReference = '';
+        }
+
+        function selectPdf(file) {
+            if (!file) return;
+            if (file.type !== 'application/pdf' && !file.name.toLowerCase().endsWith('.pdf')) {
+                showToast('Please choose a PDF file.', true);
+                return;
+            }
+            if (file.size > MAX_PDF_BYTES) {
+                showToast('PDF uploads must be 4 MB or smaller.', true);
+                return;
+            }
+            selectedPdfFile = file;
+            currentSourceReference = `pdf:${file.name}`;
+            urlInput.value = '';
+            setPdfDisplay(file.name);
+            errorDiv.textContent = '';
+        }
+
+        function initializeSourceInputs() {
+            pdfInput.addEventListener('change', () => selectPdf(pdfInput.files?.[0]));
+            pdfClear.addEventListener('click', () => clearPdfSelection());
+            urlInput.addEventListener('input', () => {
+                if (urlInput.value.trim() && selectedPdfFile) clearPdfSelection();
+                currentSourceReference = urlInput.value.trim();
+            });
+            ['dragenter', 'dragover'].forEach(eventName => pdfDropZone.addEventListener(eventName, event => {
+                event.preventDefault();
+                pdfDropZone.classList.add('dragging');
+            }));
+            ['dragleave', 'drop'].forEach(eventName => pdfDropZone.addEventListener(eventName, event => {
+                event.preventDefault();
+                pdfDropZone.classList.remove('dragging');
+            }));
+            pdfDropZone.addEventListener('drop', event => selectPdf(event.dataTransfer?.files?.[0]));
+        }
+
         // --- CORE APPLICATION LOGIC ---
         async function analyzeCase() {
             const url = urlInput.value.trim();
-            if (!url) {
-                showToast('Please enter a valid URL', true);
-                errorDiv.textContent = 'Please enter a valid URL';
+            const pdfFile = selectedPdfFile;
+            if (!url && !pdfFile) {
+                showToast('Enter an article URL or choose a PDF.', true);
+                errorDiv.textContent = 'Enter an article URL or choose a PDF.';
                 return;
             }
 
-            try {
-                const parsedUrl = new URL(url);
-                if (!['http:', 'https:'].includes(parsedUrl.protocol)) throw new Error();
-            } catch {
-                showToast('Please enter a full HTTP or HTTPS URL.', true);
-                errorDiv.textContent = 'Please enter a full HTTP or HTTPS URL.';
-                return;
+            if (!pdfFile) {
+                try {
+                    const parsedUrl = new URL(url);
+                    if (!['http:', 'https:'].includes(parsedUrl.protocol)) throw new Error();
+                } catch {
+                    showToast('Please enter a full HTTP or HTTPS URL.', true);
+                    errorDiv.textContent = 'Please enter a full HTTP or HTTPS URL.';
+                    return;
+                }
             }
 
             resetUI(true);
@@ -130,7 +201,15 @@
             analyzeButton.textContent = '⏳ Analyzing…';
 
             try {
-                const response = await fetch('/api/analyze', {
+                const sourceReference = pdfFile ? `pdf:${pdfFile.name}` : url;
+                const response = await fetch(API_ENDPOINT, pdfFile ? {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/octet-stream',
+                        'X-File-Name': encodeURIComponent(pdfFile.name)
+                    },
+                    body: pdfFile
+                } : {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ url })
@@ -147,16 +226,9 @@
                     throw new Error(errorMessage);
                 }
                 const data = await response.json();
-                currentAnalysisResult = data;
-
-                // Save to analysis history
-                saveToHistory(url, data);
-
-                displaySourceAccess(data.sourceAccess, data.analysisMode);
-                displayResults(data.analysis);
-                displaySourceText(data.structuredData || data.sourceText);
-                generateBlueprint();
-                addBookmarkButton();
+                currentSourceReference = sourceReference;
+                saveToHistory(sourceReference, data, pdfFile ? 'pdf' : 'url');
+                renderAnalysis(data);
                 completeProgress();
                 showToast('Analysis complete!');
             } catch (error) {
@@ -171,6 +243,15 @@
                 analyzeButton.removeAttribute('aria-busy');
                 analyzeButton.textContent = '💎 Analyze Case Study';
             }
+        }
+
+        function renderAnalysis(data, { scroll = true } = {}) {
+            currentAnalysisResult = data;
+            displaySourceAccess(data.sourceAccess, data.analysisMode);
+            displayResults(data.analysis);
+            displaySourceText(data.structuredData || data.sourceText);
+            generateBlueprint(scroll);
+            addBookmarkButton();
         }
 
         function displaySourceAccess(access, analysisMode) {
@@ -452,23 +533,34 @@
         }
 
         // --- HISTORY & BOOKMARKING FUNCTIONS ---
-        function saveToHistory(url, data) {
+        function saveToHistory(sourceReference, data, sourceType = 'url') {
             const historyItem = {
                 id: Date.now().toString(),
-                url: url,
+                url: sourceType === 'url' ? sourceReference : '',
+                sourceReference,
+                sourceType,
                 title: extractTitle(data.structuredData || data.sourceText),
                 timestamp: new Date().toISOString(),
                 overallScore: calculateResearchScore(data.analysis).overall_quality,
                 analysis: data.analysis,
                 structuredData: data.structuredData,
-                sourceText: data.sourceText
+                sourceText: data.sourceText,
+                sourceAccess: data.sourceAccess,
+                analysisMode: data.analysisMode
             };
 
-            // Add to beginning and limit to 50 items
+            analysisHistory = analysisHistory.filter(item => (item.sourceReference || item.url) !== sourceReference);
             analysisHistory.unshift(historyItem);
             analysisHistory = analysisHistory.slice(0, 50);
 
-            localStorage.setItem('analysisHistory', JSON.stringify(analysisHistory));
+            while (analysisHistory.length) {
+                try {
+                    localStorage.setItem('analysisHistory', JSON.stringify(analysisHistory));
+                    break;
+                } catch {
+                    analysisHistory.pop();
+                }
+            }
             updateHistoryDisplay();
         }
 
@@ -482,6 +574,10 @@
             return titleMatch ? titleMatch[1].substring(0, 100) : 'Untitled Paper';
         }
 
+        function getCurrentSourceReference() {
+            return currentSourceReference || urlInput.value.trim();
+        }
+
         async function addBookmarkButton() {
             if (!currentAnalysisResult) return;
 
@@ -493,7 +589,7 @@
 
             const bookmarkBtn = document.createElement('button');
             bookmarkBtn.className = 'bookmark-btn';
-            const url = urlInput.value.trim();
+            const url = getCurrentSourceReference();
 
             // Show loading state initially
             bookmarkBtn.innerHTML = '⏳ Loading...';
@@ -525,7 +621,7 @@
                 return;
             }
 
-            const url = urlInput.value.trim();
+            const url = getCurrentSourceReference();
             const bookmarkBtn = document.querySelector('.bookmark-btn');
             if (bookmarkBtn) {
                 bookmarkBtn.disabled = true;
@@ -594,7 +690,7 @@
 
         function toggleBookmarkLocalStorage() {
             // Fallback localStorage implementation
-            const url = urlInput.value.trim();
+            const url = getCurrentSourceReference();
             const isCurrentlyBookmarked = bookmarkedPapers.some(item => item.url === url);
 
             if (isCurrentlyBookmarked) {
@@ -701,14 +797,102 @@
         async function updateBookmarkButton() {
             const bookmarkBtn = document.querySelector('.bookmark-btn');
             if (bookmarkBtn && currentAnalysisResult) {
-                const url = urlInput.value.trim();
+                const url = getCurrentSourceReference();
                 const isBookmarkedResult = await isBookmarked(url);
                 bookmarkBtn.innerHTML = isBookmarkedResult ? '⭐ Bookmarked' : '☆ Bookmark';
             }
         }
 
         function updateHistoryDisplay() {
-            // This will be called when we add the history sidebar
+            const historyList = document.getElementById('historyList');
+            const count = document.getElementById('historyCount');
+            if (!historyList || !count) return;
+
+            const query = historySearch?.value.trim().toLowerCase() || '';
+            const visibleItems = analysisHistory.filter(item => {
+                const haystack = `${item.title || ''} ${item.sourceReference || item.url || ''}`.toLowerCase();
+                return !query || haystack.includes(query);
+            });
+
+            count.textContent = String(analysisHistory.length);
+            historyList.replaceChildren();
+            if (!visibleItems.length) {
+                const empty = document.createElement('div');
+                empty.className = 'history-empty';
+                empty.textContent = analysisHistory.length
+                    ? 'No saved analyses match your search.'
+                    : 'Your completed analyses will appear here automatically.';
+                historyList.appendChild(empty);
+                return;
+            }
+
+            visibleItems.forEach(item => {
+                const button = document.createElement('button');
+                button.type = 'button';
+                button.className = 'history-item';
+                button.dataset.historyId = item.id;
+
+                const title = document.createElement('span');
+                title.className = 'history-item-title';
+                title.textContent = item.title || 'Untitled publication';
+
+                const meta = document.createElement('span');
+                meta.className = 'history-item-meta';
+                const source = document.createElement('span');
+                source.className = 'history-item-source';
+                source.textContent = item.sourceType === 'pdf'
+                    ? `PDF · ${(item.sourceReference || '').replace(/^pdf:/, '')}`
+                    : new Date(item.timestamp).toLocaleDateString();
+                const score = document.createElement('span');
+                score.className = 'history-item-score';
+                score.textContent = `${item.overallScore ?? '—'}/100`;
+                meta.append(source, score);
+                button.append(title, meta);
+                button.addEventListener('click', () => openHistoryItem(item.id));
+                historyList.appendChild(button);
+            });
+        }
+
+        function openHistoryItem(id) {
+            const item = analysisHistory.find(entry => entry.id === id);
+            if (!item) return;
+            currentSourceReference = item.sourceReference || item.url || '';
+            selectedPdfFile = null;
+            if (item.sourceType === 'pdf' || currentSourceReference.startsWith('pdf:')) {
+                urlInput.value = '';
+                setPdfDisplay(currentSourceReference.replace(/^pdf:/, ''), true);
+            } else {
+                urlInput.value = item.url || currentSourceReference;
+                clearPdfSelection(false);
+            }
+            const data = {
+                analysis: item.analysis,
+                structuredData: item.structuredData,
+                sourceText: item.sourceText,
+                sourceAccess: item.sourceAccess || { level: 'full_text', provider: 'saved analysis' },
+                analysisMode: item.analysisMode || 'ai'
+            };
+            closeHistoryDrawer();
+            renderAnalysis(data, { scroll: false });
+            document.getElementById('mainApp').scrollIntoView({ behavior: 'smooth', block: 'start' });
+            showToast('Saved analysis reopened.');
+        }
+
+        function openHistoryDrawer() {
+            historyDrawer.classList.add('open');
+            historyDrawer.setAttribute('aria-hidden', 'false');
+            historyToggle.setAttribute('aria-expanded', 'true');
+            historyOverlay.hidden = false;
+            document.body.classList.add('history-open');
+            setTimeout(() => historySearch.focus(), 50);
+        }
+
+        function closeHistoryDrawer() {
+            historyDrawer.classList.remove('open');
+            historyDrawer.setAttribute('aria-hidden', 'true');
+            historyToggle.setAttribute('aria-expanded', 'false');
+            historyOverlay.hidden = true;
+            document.body.classList.remove('history-open');
         }
 
         // --- SEARCH & FILTER FUNCTIONS ---
@@ -956,7 +1140,7 @@
                 metadata: {
                     exportDate: new Date().toISOString(),
                     paperTitle: extractTitle(currentAnalysisResult.structuredData || currentAnalysisResult.sourceText),
-                    url: urlInput.value.trim()
+                    url: getCurrentSourceReference()
                 },
                 scores: calculateResearchScore(currentAnalysisResult.analysis),
                 analysis: currentAnalysisResult.analysis,
@@ -1151,8 +1335,10 @@
 
             if (!isLoading) {
                 urlInput.value = '';
+                clearPdfSelection();
                 document.querySelector('.reset-btn').style.display = 'none';
                 currentAnalysisResult = null;
+                currentSourceReference = '';
             }
         }
 
@@ -1163,7 +1349,9 @@
                 { url: 'https://arxiv.org/abs/2303.08774' }
             ];
             const randomExample = examples[Math.floor(Math.random() * examples.length)];
+            clearPdfSelection();
             urlInput.value = randomExample.url;
+            currentSourceReference = randomExample.url;
             showToast('Random arXiv abstract URL loaded. Click "Analyze" to proceed.');
         }
 
@@ -1197,72 +1385,108 @@
             }
         }
 
-        function generateBlueprint() {
+        function generateBlueprint(scroll = true) {
             if (!currentAnalysisResult) return;
             const { analysis } = currentAnalysisResult;
-            const opportunities = analysis.opportunities || [];
-            const gaps = analysis.gaps || [];
-            const exploits = analysis.exploits || [];
-
-            // Extract content from new object format or fallback to string format
-            const getContent = (item) => {
-                if (typeof item === 'string') return item;
-                return getItemText(item);
+            const itemText = item => typeof item === 'string' ? item : `${item.title ? `${item.title}: ` : ''}${getItemText(item)}`;
+            const list = values => (Array.isArray(values) ? values : []).map(value => `  - ${value}`).join('\n') || '  - Not established in the available source.';
+            const fallbackEvidence = [...(analysis.exploits || []), ...(analysis.gaps || []), ...(analysis.models || [])]
+                .slice(0, 3)
+                .map(item => ({
+                    claim: itemText(item),
+                    why_it_matters: 'This finding can materially change whether the publication should be trusted or used as the basis for a product.',
+                    verification_steps: ['Locate the exact table, figure, or passage supporting this finding.', 'Recalculate the reported result from the underlying data or closest lawful dataset.', 'Repeat the calculation under alternative assumptions and document every discrepancy.'],
+                    required_data: ['Methods and supplementary materials', 'Raw or minimally processed data', 'Code, parameters, and exclusion criteria'],
+                    supporting_signal: 'The direction and practical effect remain stable after independent reproduction and sensitivity testing.',
+                    falsifying_signal: 'The result disappears, reverses, or depends on an undisclosed assumption or excluded observation.'
+                }));
+            const primaryOpportunity = itemText((analysis.opportunities || [])[0] || 'A transparent evidence-verification workflow');
+            const primaryGap = itemText((analysis.gaps || [])[0] || 'The central evidence has not yet been independently verified');
+            const blueprint = analysis.blueprint || {
+                executive_thesis: `Validate the publication's highest-value opportunity while resolving this key uncertainty: ${primaryGap}`,
+                evidence_to_verify: fallbackEvidence,
+                mvp_plan: {
+                    problem_statement: primaryGap,
+                    target_user: 'Researchers, technical reviewers, and evidence-driven product teams',
+                    value_proposition: `Turn the publication's core opportunity into a transparent, testable workflow: ${primaryOpportunity}`,
+                    core_features: ['Claim-to-evidence matrix linked to source passages', 'Reproducible analysis pipeline with versioned parameters', 'Sensitivity and counter-evidence testing', 'Decision dashboard showing support, contradiction, and uncertainty'],
+                    experiments: [{ hypothesis: primaryOpportunity, method: 'Reproduce the central result, then run a held-out validation and at least two sensitivity analyses.', metric: 'Direction, effect size, uncertainty interval, and error against the published result', pass_condition: 'The effect remains practically meaningful and directionally consistent under prespecified robustness checks.' }],
+                    data_and_tools: ['Full methods and supplements', 'Lawfully accessible source data or a justified proxy dataset', 'Version-controlled computation environment'],
+                    risks_and_mitigations: ['Missing data — label the claim unverifiable and request the missing artifact.', 'Confirmation bias — preregister the test, thresholds, and counter-hypotheses.'],
+                    next_30_days: ['Days 1–5: create the claim and evidence inventory.', 'Days 6–12: acquire data and reproduce the analysis environment.', 'Days 13–21: run reproduction, counter-tests, and sensitivity checks.', 'Days 22–30: publish discrepancies and make the MVP go/no-go decision.']
+                }
             };
+            const plan = blueprint.mvp_plan || {};
+            const sourceScope = currentAnalysisResult.sourceAccess?.level === 'abstract'
+                ? 'ABSTRACT ONLY — obtain the full methods, results, tables, and supplements before treating missing details as flaws.'
+                : 'FULL TEXT — verification should still use the original data, code, and supplements where available.';
 
-            const primaryGap = gaps.length > 0 ? getContent(gaps[0]) : 'Lack of verifiable data';
-            const primaryOpportunity = opportunities.length > 0 ? getContent(opportunities[0]) : 'The underlying scientific principle';
+            let evidenceText = '';
+            (blueprint.evidence_to_verify || fallbackEvidence).forEach((item, index) => {
+                evidenceText += `
+Claim ${index + 1}: ${item.claim || 'Claim not specified'}
+Why it matters: ${item.why_it_matters || 'It affects the strength or usefulness of the publication.'}
+Verification steps:
+${list(item.verification_steps)}
+Required evidence:
+${list(item.required_data)}
+Evidence that would SUPPORT the claim: ${item.supporting_signal || 'Independent results reproduce the reported direction and practical effect.'}
+Evidence that would COUNTER or FALSIFY the claim: ${item.falsifying_signal || 'Independent results fail to reproduce the direction or practical effect.'}
+`;
+            });
 
-            // Get top 3 highest priority issues from exploits for MVP focus
-            const sortedExploits = exploits.filter(item => typeof item === 'object' && item.rank)
-                .sort((a, b) => a.rank - b.rank)
-                .slice(0, 3);
+            let experimentsText = '';
+            (plan.experiments || []).forEach((experiment, index) => {
+                experimentsText += `
+Experiment ${index + 1}
+  Hypothesis: ${experiment.hypothesis || 'Not specified'}
+  Method: ${experiment.method || 'Not specified'}
+  Metric: ${experiment.metric || 'Not specified'}
+  Pass condition: ${experiment.pass_condition || 'Define before testing.'}
+`;
+            });
 
-            let blueprintText = `
-Project Blueprint: A Legitimate MVP Approach
-============================================
+            const blueprintText = `EVIDENCE VALIDATION & MVP BLUEPRINT
+====================================
 
-Based on the analysis, here is a potential roadmap to build a Minimum Viable Product (MVP) that addresses the identified gaps and leverages the core opportunities while avoiding the exploits found.
+SOURCE SCOPE
+${sourceScope}
 
-1. Core Problem to Solve:
--------------------------
-Address the primary knowledge gap: "${primaryGap}".
+EXECUTIVE THESIS
+${blueprint.executive_thesis || 'Independently validate the central publication claim before using it as the basis for an MVP.'}
 
-2. Key Technology/Principle to Use:
------------------------------------
-Focus on the core legitimate opportunity: "${primaryOpportunity}".
+1. CLAIMS TO PROVE OR COUNTER
+-----------------------------${evidenceText || '\nNo evidence-validation items were returned. Obtain the full publication and rerun the analysis.'}
 
-3. Critical Issues to Avoid:
-----------------------------`;
+2. MVP DECISION BRIEF
+---------------------
+Problem: ${plan.problem_statement || primaryGap}
+Target user: ${plan.target_user || 'Not specified'}
+Value proposition: ${plan.value_proposition || primaryOpportunity}
 
-            if (sortedExploits.length > 0) {
-                sortedExploits.forEach((exploit, index) => {
-                    blueprintText += `\n* Issue #${exploit.rank}: ${getContent(exploit)}`;
-                });
-            } else {
-                blueprintText += `\n* Ensure all claims are backed by verifiable data\n* Implement proper peer review processes\n* Avoid overstated conclusions`;
-            }
+Prioritized features:
+${list(plan.core_features)}
 
-            blueprintText += `
+3. MVP EXPERIMENTS AND PASS/FAIL METRICS
+----------------------------------------${experimentsText || '\nNo experiments were returned. Convert the primary claim into a measurable hypothesis before building.'}
 
-4. Proposed MVP Features:
--------------------------
-* A public data dashboard to transparently display experimental results.
-* An open-source simulation model of the core scientific mechanism.
-* A peer-review submission portal to gather external validation.
-* Clear, documented methodology for replication.
-* Bias detection and mitigation tools based on ethical concerns identified.
+4. DATA, TOOLS, AND DEPENDENCIES
+--------------------------------
+${list(plan.data_and_tools)}
 
-5. Key Metrics for Success:
----------------------------
-* Number of successful, independent replications of the core result.
-* Correlation factor between simulation and real-world experimental data.
-* Number of positive peer reviews received through the portal.
-* Ethical compliance score based on identified concerns.
-            `;
+5. RISKS AND MITIGATIONS
+------------------------
+${list(plan.risks_and_mitigations)}
+
+6. 30-DAY ACTION PLAN
+---------------------
+${list(plan.next_30_days)}
+
+DECISION RULE
+Do not advance the MVP because a result is novel or newsworthy. Advance only when the prespecified pass condition is met, the most important counter-test fails to overturn it, and the remaining uncertainty is acceptable for the target user's decision.`;
             blueprintContent.textContent = blueprintText.trim();
             blueprintSection.style.display = 'block';
-            blueprintSection.scrollIntoView({ behavior: 'smooth' });
+            if (scroll) blueprintSection.scrollIntoView({ behavior: 'smooth' });
         }
 
         function downloadBlueprint() {
@@ -1435,6 +1659,15 @@ Focus on the core legitimate opportunity: "${primaryOpportunity}".
 
         document.addEventListener('DOMContentLoaded', async () => {
             setupCarousel();
+            initializeSourceInputs();
+            updateHistoryDisplay();
+            historyToggle.addEventListener('click', openHistoryDrawer);
+            historyClose.addEventListener('click', closeHistoryDrawer);
+            historyOverlay.addEventListener('click', closeHistoryDrawer);
+            historySearch.addEventListener('input', updateHistoryDisplay);
+            document.addEventListener('keydown', event => {
+                if (event.key === 'Escape' && historyDrawer.classList.contains('open')) closeHistoryDrawer();
+            });
             await initializeAuth();
         });
 

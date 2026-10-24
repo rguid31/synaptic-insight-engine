@@ -8,6 +8,7 @@ const MODEL_NAME = process.env.AI_MODEL || 'nvidia/nemotron-3.5-lightning-free';
 const REQUEST_TIMEOUT_MS = 8000;
 const MAX_SOURCE_CHARS = 50000;
 const MAX_RESPONSE_BYTES = 15 * 1024 * 1024;
+const MAX_UPLOAD_BYTES = 4 * 1024 * 1024;
 
 const findingSchema = {
     type: 'object',
@@ -150,6 +151,26 @@ async function readLimitedBuffer(response) {
     return Buffer.concat(chunks);
 }
 
+async function parsePdfBuffer(body, { firstPages, includeInfo = false } = {}) {
+    if (!Buffer.isBuffer(body) || body.length < 5 || body.subarray(0, 5).toString() !== '%PDF-') {
+        throw Object.assign(new Error('The uploaded file is not a valid PDF.'), { statusCode: 400 });
+    }
+
+    const { PDFParse } = await import('pdf-parse');
+    const parser = new PDFParse({ data: body });
+    try {
+        const info = includeInfo ? await parser.getInfo() : null;
+        const result = await parser.getText(firstPages ? { first: firstPages } : undefined);
+        const text = result.text?.replace(/\u0000/g, '').trim();
+        if (!text || text.length < 100) {
+            throw Object.assign(new Error('This PDF does not contain enough selectable text to analyze. It may be image-only or scanned.'), { statusCode: 422 });
+        }
+        return { text, info };
+    } finally {
+        await parser.destroy();
+    }
+}
+
 async function fetchDocument(url) {
     const response = await fetchWithValidatedRedirects(url, AbortSignal.timeout(REQUEST_TIMEOUT_MS));
     if (!response.ok) throw new Error(`Source returned HTTP ${response.status}`);
@@ -159,14 +180,8 @@ async function fetchDocument(url) {
     }
     const body = await readLimitedBuffer(response);
     if (contentType.includes('pdf') || body.subarray(0, 4).toString() === '%PDF') {
-        const { PDFParse } = await import('pdf-parse');
-        const parser = new PDFParse({ data: body });
-        try {
-            const result = await parser.getText({ first: 25 });
-            return { kind: 'pdf', content: result.text, url };
-        } finally {
-            await parser.destroy();
-        }
+        const result = await parsePdfBuffer(body, { firstPages: 25 });
+        return { kind: 'pdf', content: result.text, url };
     }
     return { kind: contentType.includes('xml') ? 'xml' : 'html', content: body.toString('utf8'), url };
 }
@@ -256,6 +271,11 @@ export function extractDoi(url, html = '') {
         if (doi) return doi.toLowerCase();
     }
     return null;
+}
+
+function extractDoiFromText(text) {
+    const doi = String(text || '').slice(0, 15000).match(/10\.\d{4,9}\/[^\s<>"?#&]+/i)?.[0]?.replace(/[.,;)]$/, '');
+    return doi ? doi.toLowerCase() : null;
 }
 
 async function fetchJson(url, headers = {}) {
@@ -459,6 +479,31 @@ export async function resolveSource(inputUrl) {
     throw Object.assign(new Error('This paper has no accessible full text or verified abstract in the connected scholarly indexes.'), { statusCode: 422 });
 }
 
+export async function resolvePdfUpload(body, filename = 'uploaded-paper.pdf') {
+    if (body.length > MAX_UPLOAD_BYTES) {
+        throw Object.assign(new Error('PDF uploads must be 4 MB or smaller.'), { statusCode: 413 });
+    }
+
+    const { text, info } = await parsePdfBuffer(body, { includeInfo: true });
+    const doi = extractDoiFromText(text);
+    const crossref = doi
+        ? await fetchJson(`https://api.crossref.org/works/${encodeURIComponent(doi)}`).catch(() => null)
+        : null;
+    const citation = crossref?.message;
+    const pdfTitle = info?.info?.Title;
+    const cleanFilename = String(filename || 'uploaded-paper.pdf').replace(/\.pdf$/i, '').replace(/[_-]+/g, ' ').trim();
+    return metadataSource({
+        title: citation?.title?.[0] || pdfTitle || cleanFilename || 'Uploaded paper',
+        authors: citation?.author?.map(author => [author.given, author.family].filter(Boolean).join(' ')) || info?.info?.Author,
+        articleText: text,
+        doi,
+        venue: citation?.['container-title']?.[0] || 'Uploaded PDF',
+        originalUrl: `file:${encodeURIComponent(filename)}`,
+        actualUrl: `file:${encodeURIComponent(filename)}`,
+        provider: 'uploaded PDF'
+    });
+}
+
 function validateAnalysis(value) {
     const categories = analysisSchema.required;
     if (!value || typeof value !== 'object' || categories.some(key => !Array.isArray(value[key]))) {
@@ -518,7 +563,33 @@ export function createFallbackAnalysis(sourceText) {
         gaps: [{ title: 'Evidence is limited in the extracted source', description: `${evidence} Full methods, measurements, uncertainty estimates, and comparison data should be reviewed before drawing conclusions.`, rank: 1 }],
         models: [{ title: 'Evaluate the proposed mechanism quantitatively', description: `${evidence} A useful next step is to translate the claimed mechanism into measurable variables and falsifiable predictions.`, rank: 2 }],
         ethical_concerns: [{ title: 'Communicate uncertainty clearly', description: `${evidence} Public or commercial communication should distinguish reported claims from independently established results.`, rank: 2 }],
-        reproducibility_issues: [{ title: 'Replication details need verification', description: `${evidence} Confirm that complete procedures, parameters, raw data, and independent replication evidence are available.`, rank: 1 }]
+        reproducibility_issues: [{ title: 'Replication details need verification', description: `${evidence} Confirm that complete procedures, parameters, raw data, and independent replication evidence are available.`, rank: 1 }],
+        blueprint: {
+            executive_thesis: 'Treat the central publication claim as a testable hypothesis until its methods, data, and effect size have been independently verified.',
+            evidence_to_verify: [{
+                claim: excerpt || 'The publication’s central reported result',
+                why_it_matters: 'This claim is the foundation for any follow-up research or product decision.',
+                verification_steps: ['Obtain the full methods, supplements, raw data, and code.', 'Recreate the primary analysis with the published parameters.', 'Run robustness checks with alternative assumptions and a held-out dataset.'],
+                required_data: ['Primary measurements', 'Sampling and exclusion criteria', 'Analysis code and parameter settings'],
+                supporting_signal: 'The reported direction and practical effect size persist across the reproduction and robustness checks.',
+                falsifying_signal: 'The result disappears, reverses, or falls below the prespecified practical-effect threshold.'
+            }],
+            mvp_plan: {
+                problem_statement: 'Researchers need a transparent way to test whether the publication’s central claim survives independent reproduction.',
+                target_user: 'Independent researchers, technical reviewers, and evidence-driven product teams',
+                value_proposition: 'Turn a public claim into a traceable verification workflow with explicit evidence and pass/fail criteria.',
+                core_features: ['Evidence and source registry', 'Reproducible analysis pipeline', 'Assumption and sensitivity testing', 'Results comparison dashboard'],
+                experiments: [{
+                    hypothesis: 'The publication’s central effect can be independently reproduced.',
+                    method: 'Re-run the reported procedure on the original or closest lawful dataset, then repeat on a held-out sample.',
+                    metric: 'Direction, effect size, uncertainty interval, and replication error relative to the published result',
+                    pass_condition: 'The direction matches and the effect remains practically meaningful under the prespecified robustness checks.'
+                }],
+                data_and_tools: ['Full publication and supplement', 'Versioned data and analysis environment', 'Documented statistical or computational pipeline'],
+                risks_and_mitigations: ['Incomplete source material — label unverifiable steps and request missing artifacts.', 'Selection or confirmation bias — preregister thresholds and retain negative results.'],
+                next_30_days: ['Days 1–5: extract claims, variables, assumptions, and reported thresholds.', 'Days 6–12: acquire lawful data and recreate the analysis environment.', 'Days 13–21: reproduce the primary result and run sensitivity tests.', 'Days 22–30: publish the evidence matrix, discrepancies, and MVP go/no-go decision.']
+            }
+        }
     };
 }
 
@@ -529,6 +600,8 @@ Available source: ${access.level === 'full_text' ? 'article text' : 'abstract on
 
 Return only one valid JSON object, without Markdown fences or commentary. Give 1-3 distinct, evidence-based findings in each category; use fewer when the available text is limited. Every finding must quote or precisely reference the source text. Do not infer a missing detail is absent from the paper when only an abstract is available. Use rank 1 for the highest priority and 5 for the lowest.
 
+Also produce an actionable blueprint grounded in the available source. It must help a technically capable user independently support or counter the publication's most important public claims and decide whether to build an MVP. Do not use generic filler. For each important claim, specify concrete verification steps, required evidence, and separate supporting and falsifying signals. For the MVP, define the user, value proposition, prioritized features, testable experiments, named metrics, explicit pass conditions, dependencies, risks, mitigations, and a realistic 30-day sequence. If only an abstract is available, label the evidence that must be obtained before a conclusion can be reached.
+
 - exploits: unsubstantiated claims, methodological flaws, overstated conclusions, conflicts, or misleading statistics.
 - opportunities: legitimate technologies, methods, or commercial/research opportunities.
 - gaps: missing controls, statistical evidence, validation, long-term data, or important context.
@@ -536,8 +609,8 @@ Return only one valid JSON object, without Markdown fences or commentary. Give 1
 - ethical_concerns: bias, privacy, fairness, safety, or social implications.
 - reproducibility_issues: missing code, data, parameters, procedures, or independent validation.
 
-Use exactly this shape for every item:
-{"exploits":[{"title":"...","description":"...","rank":1}],"opportunities":[{"title":"...","description":"...","rank":1}],"gaps":[{"title":"...","description":"...","rank":1}],"models":[{"title":"...","description":"...","rank":1}],"ethical_concerns":[{"title":"...","description":"...","rank":1}],"reproducibility_issues":[{"title":"...","description":"...","rank":1}]}
+Use this exact top-level shape:
+{"exploits":[{"title":"...","description":"...","rank":1}],"opportunities":[{"title":"...","description":"...","rank":1}],"gaps":[{"title":"...","description":"...","rank":1}],"models":[{"title":"...","description":"...","rank":1}],"ethical_concerns":[{"title":"...","description":"...","rank":1}],"reproducibility_issues":[{"title":"...","description":"...","rank":1}],"blueprint":{"executive_thesis":"...","evidence_to_verify":[{"claim":"...","why_it_matters":"...","verification_steps":["..."],"required_data":["..."],"supporting_signal":"...","falsifying_signal":"..."}],"mvp_plan":{"problem_statement":"...","target_user":"...","value_proposition":"...","core_features":["..."],"experiments":[{"hypothesis":"...","method":"...","metric":"...","pass_condition":"..."}],"data_and_tools":["..."],"risks_and_mitigations":["..."],"next_30_days":["..."]}}}
 
 SOURCE TEXT:
 ${sourceText}`;
@@ -547,8 +620,8 @@ ${sourceText}`;
             prompt,
             temperature: 0.2,
             maxOutputTokens: 8192,
-            maxRetries: 1,
-            timeout: 35000,
+            maxRetries: 0,
+            timeout: 25000,
             providerOptions: {
                 gateway: {
                     tags: ['feature:paper-analysis', `env:${process.env.VERCEL_ENV || 'development'}`]
@@ -563,18 +636,54 @@ ${sourceText}`;
 }
 
 export default async function handler(req, res) {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-File-Name');
+    if (req.method === 'OPTIONS') return res.status(204).json({});
+
     if (req.method !== 'POST') {
         res.setHeader('Allow', 'POST');
         return res.status(405).json({ error: 'Method not allowed. Use POST.' });
     }
 
     try {
-        const body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
-        if (!body?.url || typeof body.url !== 'string') {
-            return res.status(400).json({ error: 'A URL is required.' });
+        const contentType = String(req.headers?.['content-type'] || '').toLowerCase();
+        let source;
+        if (contentType.startsWith('application/pdf') || contentType.startsWith('application/octet-stream')) {
+            const declaredLength = Number(req.headers?.['content-length']);
+            if (Number.isFinite(declaredLength) && declaredLength > MAX_UPLOAD_BYTES) {
+                return res.status(413).json({ error: 'PDF uploads must be 4 MB or smaller.' });
+            }
+            let pdfBody;
+            if (Buffer.isBuffer(req.body)) pdfBody = req.body;
+            else if (req.body instanceof Uint8Array) pdfBody = Buffer.from(req.body);
+            else if (typeof req.body === 'string') pdfBody = Buffer.from(req.body, 'binary');
+            else {
+                const chunks = [];
+                let totalBytes = 0;
+                for await (const chunk of req) {
+                    const buffer = Buffer.from(chunk);
+                    totalBytes += buffer.length;
+                    if (totalBytes > MAX_UPLOAD_BYTES) {
+                        throw Object.assign(new Error('PDF uploads must be 4 MB or smaller.'), { statusCode: 413 });
+                    }
+                    chunks.push(buffer);
+                }
+                pdfBody = Buffer.concat(chunks);
+            }
+            const encodedFilename = String(req.headers?.['x-file-name'] || 'uploaded-paper.pdf');
+            let filename = encodedFilename;
+            try { filename = decodeURIComponent(encodedFilename); } catch { /* Use the received name. */ }
+            source = await resolvePdfUpload(pdfBody, filename.slice(0, 180));
+        } else {
+            const body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
+            if (!body?.url || typeof body.url !== 'string') {
+                return res.status(400).json({ error: 'Enter an article URL or upload a PDF.' });
+            }
+            source = await resolveSource(body.url.trim());
         }
 
-        const { sourceText, structuredData, access } = await resolveSource(body.url.trim());
+        const { sourceText, structuredData, access } = source;
         const { analysis, mode } = await analyzeText(sourceText, access);
 
         return res.status(200).json({ sourceText, structuredData, sourceAccess: access, analysisMode: mode, analysis });
