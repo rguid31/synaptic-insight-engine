@@ -2,7 +2,7 @@ jest.mock('ai', () => ({
     generateText: jest.fn()
 }));
 
-import handler, { extractSourceData, normalizeSourceUrl, parseAnalysisText } from './analyze.js';
+import handler, { createFallbackAnalysis, extractSourceData, normalizeSourceUrl, parseAnalysisText } from './analyze.js';
 
 function createResponse() {
     return {
@@ -78,6 +78,23 @@ describe('parseAnalysisText', () => {
 
     it('rejects incomplete analysis objects', () => {
         expect(() => parseAnalysisText('{"exploits":[]}')).toThrow('valid analysis object');
+    });
+});
+
+describe('createFallbackAnalysis', () => {
+    it('returns every required category with source-grounded findings', () => {
+        const fallback = createFallbackAnalysis('The source reports a testable claim with limited supporting detail.');
+
+        expect(Object.keys(fallback)).toEqual([
+            'exploits',
+            'opportunities',
+            'gaps',
+            'models',
+            'ethical_concerns',
+            'reproducibility_issues'
+        ]);
+        expect(Object.values(fallback).every(items => items.length === 1)).toBe(true);
+        expect(fallback.gaps[0].description).toContain('The source reports');
     });
 });
 

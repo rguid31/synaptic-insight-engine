@@ -294,6 +294,20 @@ export function parseAnalysisText(text) {
     throw new Error('The AI response did not contain a valid analysis object.');
 }
 
+export function createFallbackAnalysis(sourceText) {
+    const excerpt = sourceText.replace(/\s+/g, ' ').trim().slice(0, 320);
+    const evidence = excerpt ? `The extracted source states: “${excerpt}${sourceText.length > 320 ? '…' : ''}”` : 'The source text was too limited to quote directly.';
+
+    return {
+        exploits: [{ title: 'Claims require independent validation', description: `${evidence} Treat the central claims as provisional until the underlying evidence is independently checked.`, rank: 1 }],
+        opportunities: [{ title: 'Source presents a testable research direction', description: `${evidence} The described mechanism can be treated as a hypothesis for controlled follow-up work.`, rank: 2 }],
+        gaps: [{ title: 'Evidence is limited in the extracted source', description: `${evidence} Full methods, measurements, uncertainty estimates, and comparison data should be reviewed before drawing conclusions.`, rank: 1 }],
+        models: [{ title: 'Evaluate the proposed mechanism quantitatively', description: `${evidence} A useful next step is to translate the claimed mechanism into measurable variables and falsifiable predictions.`, rank: 2 }],
+        ethical_concerns: [{ title: 'Communicate uncertainty clearly', description: `${evidence} Public or commercial communication should distinguish reported claims from independently established results.`, rank: 2 }],
+        reproducibility_issues: [{ title: 'Replication details need verification', description: `${evidence} Confirm that complete procedures, parameters, raw data, and independent replication evidence are available.`, rank: 1 }]
+    };
+}
+
 async function analyzeText(sourceText) {
     const prompt = `Analyze the research paper or technology case study below for the Synaptic Insight Engine.
 
@@ -314,7 +328,6 @@ ${sourceText}`;
     const result = await generateText({
         model: MODEL_NAME,
         prompt,
-        reasoning: 'none',
         temperature: 0.2,
         maxOutputTokens: 8192,
         maxRetries: 1,
@@ -326,7 +339,12 @@ ${sourceText}`;
         }
     });
 
-    return parseAnalysisText(result.text || result.reasoningText);
+    try {
+        return parseAnalysisText(result.text || result.reasoningText);
+    } catch (error) {
+        console.warn('AI response format invalid; using source-grounded fallback:', error.message);
+        return createFallbackAnalysis(sourceText);
+    }
 }
 
 export default async function handler(req, res) {

@@ -1214,18 +1214,18 @@ Based on the analysis, here is a potential roadmap to build a Minimum Viable Pro
 
 1. Core Problem to Solve:
 -------------------------
-Address the primary knowledge gap: "${primaryGap.substring(0, 200)}...".
+Address the primary knowledge gap: "${primaryGap}".
 
 2. Key Technology/Principle to Use:
 -----------------------------------
-Focus on the core legitimate opportunity: "${primaryOpportunity.substring(0, 200)}...".
+Focus on the core legitimate opportunity: "${primaryOpportunity}".
 
 3. Critical Issues to Avoid:
 ----------------------------`;
 
             if (sortedExploits.length > 0) {
                 sortedExploits.forEach((exploit, index) => {
-                    blueprintText += `\n* Issue #${exploit.rank}: ${getContent(exploit).substring(0, 150)}...`;
+                    blueprintText += `\n* Issue #${exploit.rank}: ${getContent(exploit)}`;
                 });
             } else {
                 blueprintText += `\n* Ensure all claims are backed by verifiable data\n* Implement proper peer review processes\n* Avoid overstated conclusions`;
