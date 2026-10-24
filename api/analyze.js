@@ -1,6 +1,11 @@
 import { load } from 'cheerio';
 import { generateText } from 'ai';
+import { DOMMatrix, ImageData, Path2D } from '@napi-rs/canvas';
 import { isIP } from 'node:net';
+
+globalThis.DOMMatrix ||= DOMMatrix;
+globalThis.ImageData ||= ImageData;
+globalThis.Path2D ||= Path2D;
 
 export const config = { maxDuration: 60 };
 
@@ -23,6 +28,57 @@ const findingSchema = {
     required: ['rank', 'status', 'confidence', 'tags', 'finding']
 };
 
+const evidenceItemSchema = {
+    type: 'object',
+    additionalProperties: false,
+    properties: {
+        claim: { type: 'string' },
+        why_it_matters: { type: 'string' },
+        verification_steps: { type: 'array', items: { type: 'string' }, minItems: 3, maxItems: 6 },
+        required_data: { type: 'array', items: { type: 'string' }, minItems: 2, maxItems: 6 },
+        supporting_signal: { type: 'string' },
+        falsifying_signal: { type: 'string' }
+    },
+    required: ['claim', 'why_it_matters', 'verification_steps', 'required_data', 'supporting_signal', 'falsifying_signal']
+};
+
+const experimentSchema = {
+    type: 'object',
+    additionalProperties: false,
+    properties: {
+        hypothesis: { type: 'string' },
+        method: { type: 'string' },
+        metric: { type: 'string' },
+        pass_condition: { type: 'string' }
+    },
+    required: ['hypothesis', 'method', 'metric', 'pass_condition']
+};
+
+const blueprintSchema = {
+    type: 'object',
+    additionalProperties: false,
+    properties: {
+        executive_thesis: { type: 'string' },
+        evidence_to_verify: { type: 'array', items: evidenceItemSchema, minItems: 1, maxItems: 3 },
+        mvp_plan: {
+            type: 'object',
+            additionalProperties: false,
+            properties: {
+                problem_statement: { type: 'string' },
+                target_user: { type: 'string' },
+                value_proposition: { type: 'string' },
+                core_features: { type: 'array', items: { type: 'string' }, minItems: 3, maxItems: 6 },
+                experiments: { type: 'array', items: experimentSchema, minItems: 1, maxItems: 3 },
+                data_and_tools: { type: 'array', items: { type: 'string' }, minItems: 2, maxItems: 6 },
+                risks_and_mitigations: { type: 'array', items: { type: 'string' }, minItems: 2, maxItems: 6 },
+                next_30_days: { type: 'array', items: { type: 'string' }, minItems: 4, maxItems: 6 }
+            },
+            required: ['problem_statement', 'target_user', 'value_proposition', 'core_features', 'experiments', 'data_and_tools', 'risks_and_mitigations', 'next_30_days']
+        }
+    },
+    required: ['executive_thesis', 'evidence_to_verify', 'mvp_plan']
+};
+
 const analysisSchema = {
     type: 'object',
     additionalProperties: false,
@@ -32,7 +88,8 @@ const analysisSchema = {
         gaps: { type: 'array', items: findingSchema, minItems: 1, maxItems: 5 },
         models: { type: 'array', items: findingSchema, minItems: 1, maxItems: 5 },
         ethical_concerns: { type: 'array', items: findingSchema, minItems: 1, maxItems: 5 },
-        reproducibility_issues: { type: 'array', items: findingSchema, minItems: 1, maxItems: 5 }
+        reproducibility_issues: { type: 'array', items: findingSchema, minItems: 1, maxItems: 5 },
+        blueprint: blueprintSchema
     },
     required: [
         'exploits',
@@ -40,7 +97,8 @@ const analysisSchema = {
         'gaps',
         'models',
         'ethical_concerns',
-        'reproducibility_issues'
+        'reproducibility_issues',
+        'blueprint'
     ]
 };
 
@@ -505,8 +563,16 @@ export async function resolvePdfUpload(body, filename = 'uploaded-paper.pdf') {
 }
 
 function validateAnalysis(value) {
-    const categories = analysisSchema.required;
-    if (!value || typeof value !== 'object' || categories.some(key => !Array.isArray(value[key]))) {
+    const categories = ['exploits', 'opportunities', 'gaps', 'models', 'ethical_concerns', 'reproducibility_issues'];
+    const blueprint = value?.blueprint;
+    if (
+        !value
+        || typeof value !== 'object'
+        || categories.some(key => !Array.isArray(value[key]))
+        || !blueprint
+        || !Array.isArray(blueprint.evidence_to_verify)
+        || !blueprint.mvp_plan
+    ) {
         throw new Error('The AI response did not match the expected analysis format.');
     }
     return value;
@@ -609,8 +675,8 @@ Also produce an actionable blueprint grounded in the available source. It must h
 - ethical_concerns: bias, privacy, fairness, safety, or social implications.
 - reproducibility_issues: missing code, data, parameters, procedures, or independent validation.
 
-Use this exact top-level shape:
-{"exploits":[{"title":"...","description":"...","rank":1}],"opportunities":[{"title":"...","description":"...","rank":1}],"gaps":[{"title":"...","description":"...","rank":1}],"models":[{"title":"...","description":"...","rank":1}],"ethical_concerns":[{"title":"...","description":"...","rank":1}],"reproducibility_issues":[{"title":"...","description":"...","rank":1}],"blueprint":{"executive_thesis":"...","evidence_to_verify":[{"claim":"...","why_it_matters":"...","verification_steps":["..."],"required_data":["..."],"supporting_signal":"...","falsifying_signal":"..."}],"mvp_plan":{"problem_statement":"...","target_user":"...","value_proposition":"...","core_features":["..."],"experiments":[{"hypothesis":"...","method":"...","metric":"...","pass_condition":"..."}],"data_and_tools":["..."],"risks_and_mitigations":["..."],"next_30_days":["..."]}}}
+Use this exact top-level shape. A finding is the complete source-grounded explanation, not a short label:
+{"exploits":[{"rank":1,"status":"CRITICAL","confidence":0.9,"tags":["claim"],"finding":"..."}],"opportunities":[{"rank":1,"status":"HIGH","confidence":0.9,"tags":["method"],"finding":"..."}],"gaps":[{"rank":1,"status":"HIGH","confidence":0.9,"tags":["evidence"],"finding":"..."}],"models":[{"rank":1,"status":"HIGH","confidence":0.9,"tags":["metric"],"finding":"..."}],"ethical_concerns":[{"rank":1,"status":"HIGH","confidence":0.9,"tags":["ethics"],"finding":"..."}],"reproducibility_issues":[{"rank":1,"status":"HIGH","confidence":0.9,"tags":["replication"],"finding":"..."}],"blueprint":{"executive_thesis":"...","evidence_to_verify":[{"claim":"...","why_it_matters":"...","verification_steps":["..."],"required_data":["..."],"supporting_signal":"...","falsifying_signal":"..."}],"mvp_plan":{"problem_statement":"...","target_user":"...","value_proposition":"...","core_features":["..."],"experiments":[{"hypothesis":"...","method":"...","metric":"...","pass_condition":"..."}],"data_and_tools":["..."],"risks_and_mitigations":["..."],"next_30_days":["..."]}}}
 
 SOURCE TEXT:
 ${sourceText}`;
@@ -618,10 +684,11 @@ ${sourceText}`;
         const result = await generateText({
             model: MODEL_NAME,
             prompt,
+            reasoning: 'none',
             temperature: 0.2,
             maxOutputTokens: 8192,
             maxRetries: 0,
-            timeout: 25000,
+            timeout: 40000,
             providerOptions: {
                 gateway: {
                     tags: ['feature:paper-analysis', `env:${process.env.VERCEL_ENV || 'development'}`]

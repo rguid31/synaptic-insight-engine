@@ -122,6 +122,7 @@ describe('parseAnalysisText', () => {
         'ethical_concerns',
         'reproducibility_issues'
     ].map(key => [key, []]));
+    analysis.blueprint = createFallbackAnalysis('A testable publication claim.').blueprint;
 
     it('extracts a valid JSON object from surrounding model text', () => {
         expect(parseAnalysisText(`Result:\n\`\`\`json\n${JSON.stringify(analysis)}\n\`\`\``)).toEqual(analysis);
