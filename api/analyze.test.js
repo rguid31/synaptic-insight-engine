@@ -2,7 +2,7 @@ jest.mock('ai', () => ({
     generateText: jest.fn()
 }));
 
-import handler, { createFallbackAnalysis, extractSourceData, normalizeSourceUrl, parseAnalysisText } from './analyze.js';
+import handler, { createFallbackAnalysis, extractDoi, extractSourceData, normalizeSourceUrl, parseAnalysisText, resolveSource } from './analyze.js';
 
 function createResponse() {
     return {
@@ -35,6 +35,7 @@ describe('normalizeSourceUrl', () => {
         expect(() => normalizeSourceUrl('file:///etc/passwd')).toThrow('Only HTTP and HTTPS');
         expect(() => normalizeSourceUrl('http://127.0.0.1/private')).toThrow('cannot be accessed');
         expect(() => normalizeSourceUrl('http://192.168.1.10/private')).toThrow('cannot be accessed');
+        expect(() => normalizeSourceUrl('http://[::1]/private')).toThrow('cannot be accessed');
     });
 });
 
@@ -55,6 +56,60 @@ describe('extractSourceData', () => {
         expect(result.sourceText).toContain('Title: A Useful Paper');
         expect(result.sourceText).toContain('Ada Lovelace');
         expect(result.structuredData).toContainEqual({ section: 'title', content: 'A Useful Paper' });
+    });
+});
+
+describe('publication retrieval', () => {
+    const originalFetch = global.fetch;
+    afterEach(() => { global.fetch = originalFetch; });
+
+    it('recognizes a DOI in a publisher query string', () => {
+        expect(extractDoi('https://example.org/article?id=10.1234/example.2026'))
+            .toBe('10.1234/example.2026');
+        expect(extractDoi('https://journals.plos.org/plosone/article/file?id=10.1371/journal.pone.0266781&type=printable'))
+            .toBe('10.1371/journal.pone.0266781');
+    });
+
+    it('uses a verified abstract when the DOI landing page is blocked', async () => {
+        global.fetch = jest.fn(async url => {
+            if (url.startsWith('https://doi.org/')) return new Response('Forbidden', { status: 403 });
+            if (url.startsWith('https://api.crossref.org/works/')) {
+                return Response.json({ message: {
+                    DOI: '10.1234/example',
+                    title: ['A peer-reviewed study'],
+                    author: [{ given: 'Ada', family: 'Lovelace' }],
+                    abstract: '<p>This study reports an observed result with sufficient context to support a careful abstract-only analysis of its stated claims and limitations.</p>'
+                } });
+            }
+            return new Response('Not found', { status: 404 });
+        });
+
+        const result = await resolveSource('https://doi.org/10.1234/example');
+        expect(result.access).toMatchObject({ level: 'abstract', provider: 'Crossref abstract' });
+        expect(result.sourceText).toContain('A peer-reviewed study');
+        expect(result.sourceText).toContain('abstract-only analysis');
+    });
+
+    it('uses Europe PMC open-access full text after a blocked publisher page', async () => {
+        global.fetch = jest.fn(async url => {
+            if (url.startsWith('https://doi.org/')) return new Response('Forbidden', { status: 403 });
+            if (url.includes('/search?query=')) {
+                return Response.json({ resultList: { result: [{
+                    doi: '10.1234/example', pmcid: 'PMC12345', isOpenAccess: 'Y',
+                    title: 'A published experiment', authorString: 'Ada Lovelace'
+                }] } });
+            }
+            if (url.endsWith('/PMC12345/fullTextXML')) {
+                return new Response(`<article><front><article-meta><title-group><article-title>A published experiment</article-title></title-group></article-meta></front><body><sec><p>${'The full text describes measurements and repeatable methods. '.repeat(5)}</p></sec></body></article>`, {
+                    headers: { 'content-type': 'application/xml' }
+                });
+            }
+            return new Response('Not found', { status: 404 });
+        });
+
+        const result = await resolveSource('https://doi.org/10.1234/example');
+        expect(result.access).toMatchObject({ level: 'full_text', provider: 'Europe PMC open-access full text' });
+        expect(result.sourceText).toContain('repeatable methods');
     });
 });
 

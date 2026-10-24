@@ -152,6 +152,7 @@
                 // Save to analysis history
                 saveToHistory(url, data);
 
+                displaySourceAccess(data.sourceAccess, data.analysisMode);
                 displayResults(data.analysis);
                 displaySourceText(data.structuredData || data.sourceText);
                 generateBlueprint();
@@ -161,13 +162,6 @@
             } catch (error) {
                 console.error('Error during analysis:', error);
                 let userMessage = error.message;
-                if (userMessage.includes('URL not found')) {
-                    userMessage += ' Ensure the arXiv URL is valid (e.g., https://arxiv.org/abs/2307.12008).';
-                } else if (userMessage.includes('non-HTML resource')) {
-                    userMessage += ' Use an arXiv abstract page (e.g., https://arxiv.org/abs/2307.12008).';
-                } else if (userMessage.includes('Access denied') || userMessage.includes('paywall')) {
-                    userMessage += ' Try an arXiv abstract URL (e.g., https://arxiv.org/abs/2307.12008) for best results.';
-                }
                 showToast(userMessage, true);
                 errorDiv.textContent = userMessage;
             } finally {
@@ -177,6 +171,23 @@
                 analyzeButton.removeAttribute('aria-busy');
                 analyzeButton.textContent = '💎 Analyze Case Study';
             }
+        }
+
+        function displaySourceAccess(access, analysisMode) {
+            document.getElementById('sourceAccessNotice')?.remove();
+            if (!access) return;
+            const notice = document.createElement('div');
+            notice.id = 'sourceAccessNotice';
+            notice.className = 'source-access-notice';
+            const scope = access.level === 'full_text' ? 'Full text' : 'Abstract only';
+            const caveat = access.level === 'full_text'
+                ? ''
+                : ' Full article text was unavailable, so conclusions about methods and results are limited.';
+            const fallback = analysisMode === 'source_fallback'
+                ? ' Automated source-based findings are shown because the AI analysis was unavailable.'
+                : '';
+            notice.textContent = `${scope} analyzed via ${access.provider}.${caveat}${fallback}`;
+            resultsDiv.before(notice);
         }
 
         function formatRankedItem(item, baseClass) {
@@ -1116,6 +1127,7 @@
         }
 
         function resetUI(isLoading = false) {
+            document.getElementById('sourceAccessNotice')?.remove();
             resultsDiv.style.display = 'none';
             blueprintSection.style.display = 'none';
             sourceTextSection.style.display = 'none';

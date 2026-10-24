@@ -330,6 +330,15 @@
             margin-top: 30px;
         }
 
+        .source-access-notice {
+            margin-top: 28px;
+            padding: 14px 18px;
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            background: var(--surface-color);
+            line-height: 1.5;
+        }
+
         .source-text-section, .blueprint-section {
             display: none;
             background: var(--surface-color);

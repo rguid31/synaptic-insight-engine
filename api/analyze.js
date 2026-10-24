@@ -1,12 +1,13 @@
 import { load } from 'cheerio';
 import { generateText } from 'ai';
+import { isIP } from 'node:net';
 
 export const config = { maxDuration: 60 };
 
 const MODEL_NAME = process.env.AI_MODEL || 'nvidia/nemotron-3.5-lightning-free';
-const REQUEST_TIMEOUT_MS = 12000;
+const REQUEST_TIMEOUT_MS = 8000;
 const MAX_SOURCE_CHARS = 50000;
-const MAX_RESPONSE_BYTES = 5 * 1024 * 1024;
+const MAX_RESPONSE_BYTES = 15 * 1024 * 1024;
 
 const findingSchema = {
     type: 'object',
@@ -50,9 +51,12 @@ function isPrivateIpv4(hostname) {
 
     return parts[0] === 10
         || parts[0] === 127
+        || parts[0] >= 224
         || (parts[0] === 169 && parts[1] === 254)
+        || (parts[0] === 100 && parts[1] >= 64 && parts[1] <= 127)
         || (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31)
         || (parts[0] === 192 && parts[1] === 168)
+        || (parts[0] === 198 && (parts[1] === 18 || parts[1] === 19))
         || parts[0] === 0;
 }
 
@@ -73,7 +77,7 @@ export function normalizeSourceUrl(value) {
         parsed.username
         || parsed.password
         || hostname === 'localhost'
-        || hostname === '::1'
+        || isIP(hostname.replace(/^\[|\]$/g, '')) === 6
         || hostname.endsWith('.local')
         || isPrivateIpv4(hostname)
     ) {
@@ -101,7 +105,7 @@ async function fetchWithValidatedRedirects(startUrl, signal) {
         const response = await fetch(currentUrl, {
             headers: {
                 'User-Agent': 'Mozilla/5.0 (compatible; SynapticInsightEngine/1.0; +https://synaptic-insight-engine.vercel.app)',
-                Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                Accept: 'text/html,application/xhtml+xml,application/pdf,application/xml;q=0.9,*/*;q=0.8',
                 'Accept-Language': 'en-US,en;q=0.8'
             },
             redirect: 'manual',
@@ -121,14 +125,14 @@ async function fetchWithValidatedRedirects(startUrl, signal) {
     throw Object.assign(new Error('The source redirected too many times.'), { statusCode: 502 });
 }
 
-async function readLimitedText(response) {
+async function readLimitedBuffer(response) {
     const declaredLength = Number(response.headers.get('content-length'));
     if (Number.isFinite(declaredLength) && declaredLength > MAX_RESPONSE_BYTES) {
         throw Object.assign(new Error('The source page is too large to analyze.'), { statusCode: 413 });
     }
 
     const reader = response.body?.getReader();
-    if (!reader) return '';
+    if (!reader) return Buffer.alloc(0);
     const chunks = [];
     let totalBytes = 0;
 
@@ -143,49 +147,28 @@ async function readLimitedText(response) {
         chunks.push(Buffer.from(value));
     }
 
-    return Buffer.concat(chunks).toString('utf8');
+    return Buffer.concat(chunks);
 }
 
-async function fetchHtml(url) {
-    let lastError;
-
-    for (let attempt = 0; attempt < 2; attempt += 1) {
+async function fetchDocument(url) {
+    const response = await fetchWithValidatedRedirects(url, AbortSignal.timeout(REQUEST_TIMEOUT_MS));
+    if (!response.ok) throw new Error(`Source returned HTTP ${response.status}`);
+    const contentType = (response.headers.get('content-type') || '').toLowerCase();
+    if (!/html|xml|pdf/.test(contentType) && !/\.pdf(?:$|\?)/i.test(url)) {
+        throw new Error('Source did not return a readable article or PDF');
+    }
+    const body = await readLimitedBuffer(response);
+    if (contentType.includes('pdf') || body.subarray(0, 4).toString() === '%PDF') {
+        const { PDFParse } = await import('pdf-parse');
+        const parser = new PDFParse({ data: body });
         try {
-            const response = await fetchWithValidatedRedirects(url, AbortSignal.timeout(REQUEST_TIMEOUT_MS));
-
-            if (response.status === 404) {
-                throw Object.assign(new Error('URL not found. Please check the address and try again.'), { statusCode: 400 });
-            }
-            if (response.status === 401 || response.status === 403) {
-                throw Object.assign(new Error('Access denied by the source website. Try a public article or arXiv abstract.'), { statusCode: 400 });
-            }
-            if (response.status === 429) {
-                throw Object.assign(new Error('The source website is rate limiting requests. Please try again shortly.'), { statusCode: 429, retryable: true });
-            }
-            if (response.status >= 500) {
-                throw Object.assign(new Error('The source website is temporarily unavailable.'), { statusCode: 502, retryable: true });
-            }
-            if (!response.ok) {
-                throw Object.assign(new Error(`The source website returned HTTP ${response.status}.`), { statusCode: 400 });
-            }
-
-            const contentType = response.headers.get('content-type') || '';
-            if (!contentType.toLowerCase().includes('text/html')) {
-                throw Object.assign(
-                    new Error('The URL did not return an HTML page. arXiv PDF links are supported and will be converted automatically.'),
-                    { statusCode: 400 }
-                );
-            }
-
-            return await readLimitedText(response);
-        } catch (error) {
-            lastError = error;
-            if (!error.retryable || attempt === 1) break;
+            const result = await parser.getText({ first: 25 });
+            return { kind: 'pdf', content: result.text, url };
+        } finally {
+            await parser.destroy();
         }
     }
-
-    if (lastError?.statusCode) throw lastError;
-    throw Object.assign(new Error('The source website could not be reached in time.'), { statusCode: 502 });
+    return { kind: contentType.includes('xml') ? 'xml' : 'html', content: body.toString('utf8'), url };
 }
 
 export function extractSourceData(html, url) {
@@ -201,12 +184,15 @@ export function extractSourceData(html, url) {
     const authorText = authors.length
         ? authors.join(', ')
         : $('.authors, .author, .ltx_authors').first().text().trim() || 'Authors not found';
-    const abstract = $('.abstract, #abstract, .ltx_abstract').first().text().trim();
+    const abstract = ($('.abstract, #abstract, .ltx_abstract').first().text()
+        || $('meta[name="citation_abstract"]').attr('content')
+        || $('meta[name="description"]').attr('content')
+        || '').replace(/\s+/g, ' ').trim();
     const subjects = $('.tablecell.subjects, .subj-class').first().text().trim();
-    const selectedText = abstract
-        || $('article').first().text().trim()
-        || $('main').first().text().trim()
-        || $('body').text().trim();
+    const articleText = $('article, .article-body, #article-body, .fulltext, #fulltext, .ltx_document').first().text().trim();
+    const mainText = $('main').first().text().trim();
+    const hasFullText = articleText.replace(/\s+/g, ' ').length > Math.max(1200, abstract.length + 500);
+    const selectedText = hasFullText ? articleText : abstract || mainText || $('body').text().trim();
     const cleanedText = selectedText.replace(/\s+/g, ' ').trim().slice(0, MAX_SOURCE_CHARS);
 
     if (cleanedText.length < 100) {
@@ -225,13 +211,13 @@ export function extractSourceData(html, url) {
     const sourceText = [
         `Title: ${cleanTitle}`,
         `Authors: ${cleanAuthors}`,
-        `Abstract: ${cleanedText}`,
+        `${hasFullText ? 'Article text' : 'Abstract or page text'}: ${cleanedText}`,
         subjects ? `Subjects: ${subjects.replace(/\s+/g, ' ').trim()}` : ''
     ].filter(Boolean).join('\n');
     const structuredData = [
         { section: 'title', content: cleanTitle },
         { section: 'authors', content: cleanAuthors },
-        { section: 'abstract', content: cleanedText },
+        { section: hasFullText ? 'article_text' : 'abstract', content: cleanedText },
         {
             section: 'publication_info',
             content: {
@@ -242,7 +228,235 @@ export function extractSourceData(html, url) {
     ];
     if (subjects) structuredData.push({ section: 'subjects', content: subjects.replace(/\s+/g, ' ').trim() });
 
-    return { sourceText, structuredData };
+    return {
+        sourceText,
+        structuredData,
+        access: { level: hasFullText ? 'full_text' : 'abstract', provider: 'source website', url }
+    };
+}
+
+function plainText(markup) {
+    return load(markup || '').text().replace(/\s+/g, ' ').trim();
+}
+
+export function extractDoi(url, html = '') {
+    const $ = load(html);
+    let urlCandidates = [];
+    try {
+        const parsed = new URL(url);
+        urlCandidates = [...parsed.searchParams.values(), decodeURIComponent(parsed.pathname)];
+    } catch { /* The metadata tags may still contain a DOI. */ }
+    const candidates = [
+        $('meta[name="citation_doi"]').attr('content'),
+        $('meta[name="dc.identifier"]').attr('content'),
+        ...urlCandidates
+    ];
+    for (const candidate of candidates) {
+        const doi = String(candidate || '').match(/10\.\d{4,9}\/[^\s<>"?#&]+/i)?.[0]?.replace(/[.,;)]$/, '');
+        if (doi) return doi.toLowerCase();
+    }
+    return null;
+}
+
+async function fetchJson(url, headers = {}) {
+    const response = await fetch(url, {
+        headers: { Accept: 'application/json', ...headers },
+        signal: AbortSignal.timeout(6000)
+    });
+    if (!response.ok) return null;
+    const size = Number(response.headers.get('content-length'));
+    if (size > 2 * 1024 * 1024) return null;
+    return response.json();
+}
+
+function restoreAbstract(index) {
+    if (!index || typeof index !== 'object') return '';
+    const words = [];
+    for (const [word, positions] of Object.entries(index)) {
+        for (const position of positions) words[position] = word;
+    }
+    return words.filter(Boolean).join(' ');
+}
+
+function metadataSource({ title, authors, abstract, articleText, doi, venue, originalUrl, actualUrl, provider }) {
+    const text = (articleText || abstract || '').replace(/\s+/g, ' ').trim().slice(0, MAX_SOURCE_CHARS);
+    if (text.length < 100) return null;
+    const fullText = Boolean(articleText);
+    const cleanTitle = plainText(title) || 'Untitled publication';
+    const authorText = Array.isArray(authors) ? authors.filter(Boolean).join(', ') : authors || 'Authors not listed';
+    const structuredData = [
+        { section: 'title', content: cleanTitle },
+        { section: 'authors', content: authorText },
+        { section: fullText ? 'article_text' : 'abstract', content: text },
+        { section: 'publication_info', content: { venue: venue || 'Publication', identifier: doi || originalUrl } }
+    ];
+    return {
+        sourceText: `Title: ${cleanTitle}\nAuthors: ${authorText}\n${fullText ? 'Article text' : 'Abstract'}: ${text}`,
+        structuredData,
+        access: { level: fullText ? 'full_text' : 'abstract', provider, url: actualUrl || originalUrl }
+    };
+}
+
+function extractEuropePmcXml(xml, metadata, originalUrl, doi) {
+    const $ = load(xml, { xmlMode: true });
+    $('ref-list, back, table-wrap, fig').remove();
+    const articleText = $('article > body').text().replace(/\s+/g, ' ').trim();
+    return metadataSource({
+        title: $('article-title').first().text() || metadata?.title,
+        authors: metadata?.authorString,
+        abstract: plainText(metadata?.abstractText),
+        articleText,
+        doi,
+        venue: metadata?.journalTitle,
+        originalUrl,
+        actualUrl: `https://europepmc.org/articles/${metadata.pmcid}`,
+        provider: 'Europe PMC open-access full text'
+    });
+}
+
+async function lookupMetadata(doi) {
+    const encodedDoi = encodeURIComponent(doi);
+    const openAlexHeaders = process.env.OPENALEX_API_KEY
+        ? { Authorization: `Bearer ${process.env.OPENALEX_API_KEY}` }
+        : {};
+    const [crossref, europePmc, openAlex] = await Promise.allSettled([
+        fetchJson(`https://api.crossref.org/works/${encodedDoi}`),
+        fetchJson(`https://www.ebi.ac.uk/europepmc/webservices/rest/search?query=${encodeURIComponent(`DOI:${doi}`)}&format=json&resultType=core&pageSize=1`),
+        fetchJson(`https://api.openalex.org/works/${encodeURIComponent(`https://doi.org/${doi}`)}`, openAlexHeaders)
+    ]);
+    return {
+        crossref: crossref.status === 'fulfilled' ? crossref.value?.message : null,
+        europePmc: europePmc.status === 'fulfilled' ? europePmc.value?.resultList?.result?.[0] : null,
+        openAlex: openAlex.status === 'fulfilled' ? openAlex.value : null
+    };
+}
+
+async function findDoiFromPublicationUrl(url, html = '') {
+    const parsed = new URL(url);
+    const pmcid = parsed.pathname.match(/PMC\d+/i)?.[0];
+    const pmid = parsed.hostname.includes('pubmed.ncbi.nlm.nih.gov')
+        ? parsed.pathname.match(/\b\d{5,10}\b/)?.[0]
+        : null;
+    if (pmcid || pmid) {
+        const identifier = pmcid || pmid;
+        const result = await fetchJson(`https://www.ebi.ac.uk/europepmc/webservices/rest/search?query=${encodeURIComponent(`EXT_ID:${identifier}`)}&format=json&pageSize=1`);
+        const record = result?.resultList?.result?.[0];
+        if (record?.doi) return record.doi.toLowerCase();
+    }
+
+    const pii = parsed.pathname.match(/\/pii\/([A-Za-z0-9()\-]+)/i)?.[1];
+    if (pii) {
+        const result = await fetchJson(`https://api.crossref.org/works?filter=${encodeURIComponent(`alternative-id:${pii}`)}&rows=1`);
+        const record = result?.message?.items?.[0];
+        if (record?.DOI && record['alternative-id']?.some(id => id.toLowerCase() === pii.toLowerCase())) {
+            return record.DOI.toLowerCase();
+        }
+    }
+
+    const openAlexHeaders = process.env.OPENALEX_API_KEY
+        ? { Authorization: `Bearer ${process.env.OPENALEX_API_KEY}` }
+        : {};
+    const locationResult = await fetchJson(
+        `https://api.openalex.org/works?filter=${encodeURIComponent(`locations.landing_page_url:${url}`)}&per_page=1`,
+        openAlexHeaders
+    ).catch(() => null);
+    const locationDoi = locationResult?.results?.[0]?.doi;
+    if (locationDoi && locationResult.results[0].locations?.some(location => location.landing_page_url === url)) {
+        return locationDoi.replace(/^https?:\/\/doi\.org\//i, '').toLowerCase();
+    }
+
+    const title = load(html)('meta[name="citation_title"]').attr('content');
+    if (title && title.length >= 20 && title.length <= 250) {
+        const result = await fetchJson(`https://api.crossref.org/works?query.bibliographic=${encodeURIComponent(title)}&rows=1`);
+        const record = result?.message?.items?.[0];
+        const clean = value => String(value || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+        if (record?.DOI && clean(record.title?.[0]) === clean(title)) return record.DOI.toLowerCase();
+    }
+    return null;
+}
+
+export async function resolveSource(inputUrl) {
+    const startedAt = Date.now();
+    const url = normalizeSourceUrl(inputUrl);
+    let direct = null;
+    let directSource = null;
+    try {
+        direct = await fetchDocument(url);
+        if (direct.kind === 'pdf') {
+            const pdfDoi = extractDoi(url);
+            const record = pdfDoi
+                ? await fetchJson(`https://api.crossref.org/works/${encodeURIComponent(pdfDoi)}`).catch(() => null)
+                : null;
+            const citation = record?.message;
+            directSource = metadataSource({
+                title: citation?.title?.[0],
+                authors: citation?.author?.map(author => [author.given, author.family].filter(Boolean).join(' ')),
+                articleText: direct.content,
+                doi: pdfDoi,
+                venue: citation?.['container-title']?.[0],
+                originalUrl: url,
+                actualUrl: url,
+                provider: 'source PDF'
+            });
+        } else if (direct.kind === 'html') {
+            directSource = extractSourceData(direct.content, url);
+        }
+        if (directSource?.access.level === 'full_text') return directSource;
+    } catch (error) {
+        console.info('Direct source unavailable; checking scholarly indexes:', error.message);
+    }
+
+    const html = direct?.kind === 'html' ? direct.content : '';
+    const doi = extractDoi(url, html) || await findDoiFromPublicationUrl(url, html);
+    if (!doi) {
+        if (directSource) return directSource;
+        throw Object.assign(new Error('No readable article or verified publication record was found for this URL.'), { statusCode: 422 });
+    }
+
+    const { crossref, europePmc, openAlex } = await lookupMetadata(doi);
+    if (europePmc?.pmcid && europePmc.isOpenAccess === 'Y') {
+        try {
+            const xml = await fetchDocument(`https://www.ebi.ac.uk/europepmc/webservices/rest/${encodeURIComponent(europePmc.pmcid)}/fullTextXML`);
+            const fullText = extractEuropePmcXml(xml.content, europePmc, url, doi);
+            if (fullText?.access.level === 'full_text') return fullText;
+        } catch (error) {
+            console.info('Europe PMC full text unavailable:', error.message);
+        }
+    }
+
+    const oa = openAlex?.best_oa_location;
+    const candidates = [oa?.pdf_url, oa?.landing_page_url].filter(Boolean).slice(0, 2);
+    for (const candidate of candidates) {
+        if (Date.now() - startedAt > 18000) break;
+        try {
+            const normalized = normalizeSourceUrl(candidate);
+            if (normalized === url) continue;
+            const document = await fetchDocument(normalized);
+            const source = document.kind === 'pdf'
+                ? metadataSource({ title: openAlex.title, authors: openAlex.authorships?.map(entry => entry.author?.display_name), articleText: document.content, doi, venue: openAlex.primary_location?.source?.display_name, originalUrl: url, actualUrl: normalized, provider: 'OpenAlex open-access copy' })
+                : document.kind === 'html' ? extractSourceData(document.content, normalized) : null;
+            if (source?.access.level === 'full_text') {
+                source.access.provider = 'OpenAlex open-access copy';
+                return source;
+            }
+        } catch (error) {
+            console.info('Open-access copy unavailable:', error.message);
+        }
+    }
+
+    const indexedAbstract = metadataSource({
+        title: europePmc?.title || crossref?.title?.[0] || openAlex?.title,
+        authors: europePmc?.authorString || crossref?.author?.map(author => [author.given, author.family].filter(Boolean).join(' ')) || openAlex?.authorships?.map(entry => entry.author?.display_name),
+        abstract: plainText(europePmc?.abstractText || crossref?.abstract) || restoreAbstract(openAlex?.abstract_inverted_index),
+        doi,
+        venue: europePmc?.journalTitle || crossref?.['container-title']?.[0] || openAlex?.primary_location?.source?.display_name,
+        originalUrl: url,
+        actualUrl: europePmc?.pmcid ? `https://europepmc.org/articles/${europePmc.pmcid}` : `https://doi.org/${doi}`,
+        provider: europePmc?.abstractText ? 'Europe PMC abstract' : crossref?.abstract ? 'Crossref abstract' : 'OpenAlex abstract'
+    });
+    if (indexedAbstract) return indexedAbstract;
+    if (directSource) return directSource;
+    throw Object.assign(new Error('This paper has no accessible full text or verified abstract in the connected scholarly indexes.'), { statusCode: 422 });
 }
 
 function validateAnalysis(value) {
@@ -308,10 +522,12 @@ export function createFallbackAnalysis(sourceText) {
     };
 }
 
-async function analyzeText(sourceText) {
+async function analyzeText(sourceText, access) {
     const prompt = `Analyze the research paper or technology case study below for the Synaptic Insight Engine.
 
-Return only one valid JSON object, without Markdown fences or commentary. Return 3-5 detailed, evidence-based findings in each category. Every finding must quote or precisely reference the source text. Use rank 1 for the highest priority and 5 for the lowest.
+Available source: ${access.level === 'full_text' ? 'article text' : 'abstract only'}. Make claims only about the available text. If only an abstract is available, explicitly identify methods, data, or results that cannot be assessed from it.
+
+Return only one valid JSON object, without Markdown fences or commentary. Give 1-3 distinct, evidence-based findings in each category; use fewer when the available text is limited. Every finding must quote or precisely reference the source text. Do not infer a missing detail is absent from the paper when only an abstract is available. Use rank 1 for the highest priority and 5 for the lowest.
 
 - exploits: unsubstantiated claims, methodological flaws, overstated conclusions, conflicts, or misleading statistics.
 - opportunities: legitimate technologies, methods, or commercial/research opportunities.
@@ -325,25 +541,24 @@ Use exactly this shape for every item:
 
 SOURCE TEXT:
 ${sourceText}`;
-    const result = await generateText({
-        model: MODEL_NAME,
-        prompt,
-        temperature: 0.2,
-        maxOutputTokens: 8192,
-        maxRetries: 1,
-        timeout: 45000,
-        providerOptions: {
-            gateway: {
-                tags: ['feature:paper-analysis', `env:${process.env.VERCEL_ENV || 'development'}`]
-            }
-        }
-    });
-
     try {
-        return parseAnalysisText(result.text || result.reasoningText);
+        const result = await generateText({
+            model: MODEL_NAME,
+            prompt,
+            temperature: 0.2,
+            maxOutputTokens: 8192,
+            maxRetries: 1,
+            timeout: 35000,
+            providerOptions: {
+                gateway: {
+                    tags: ['feature:paper-analysis', `env:${process.env.VERCEL_ENV || 'development'}`]
+                }
+            }
+        });
+        return { analysis: parseAnalysisText(result.text || result.reasoningText), mode: 'ai' };
     } catch (error) {
-        console.warn('AI response format invalid; using source-grounded fallback:', error.message);
-        return createFallbackAnalysis(sourceText);
+        console.warn('AI analysis unavailable; using source-grounded fallback:', error.message);
+        return { analysis: createFallbackAnalysis(sourceText), mode: 'source_fallback' };
     }
 }
 
@@ -359,12 +574,10 @@ export default async function handler(req, res) {
             return res.status(400).json({ error: 'A URL is required.' });
         }
 
-        const url = normalizeSourceUrl(body.url.trim());
-        const html = await fetchHtml(url);
-        const { sourceText, structuredData } = extractSourceData(html, url);
-        const analysis = await analyzeText(sourceText);
+        const { sourceText, structuredData, access } = await resolveSource(body.url.trim());
+        const { analysis, mode } = await analyzeText(sourceText, access);
 
-        return res.status(200).json({ sourceText, structuredData, analysis });
+        return res.status(200).json({ sourceText, structuredData, sourceAccess: access, analysisMode: mode, analysis });
     } catch (error) {
         console.error('Analysis request failed:', error.message);
         const providerStatus = Number(error.statusCode);

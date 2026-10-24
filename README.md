@@ -8,12 +8,14 @@ AI-assisted web application for analyzing scientific papers and technology case 
 
 ## What it does
 
-Synaptic Insight Engine fetches content from a user-provided URL and routes an AI model through Vercel AI Gateway to organize the material into a structured analysis. The application is designed to surface questionable claims, legitimate opportunities, knowledge gaps, and possible MVP directions.
+Synaptic Insight Engine resolves a user-provided article URL, reads available article text or verified abstract metadata, and routes that text through Vercel AI Gateway for structured analysis. It reports whether the analysis used full text or an abstract.
 
 ### Key features
 
-- Fetches and parses article or case-study content from a URL
-- Uses Gemini for structured AI-assisted analysis
+- Reads public HTML and PDF article text
+- Searches Europe PMC, OpenAlex, and Crossref by DOI when the publisher page is unavailable
+- Uses Europe PMC open-access full text or a verified abstract when no full text can be read
+- Uses Vercel AI Gateway for structured AI-assisted analysis
 - Highlights claims, opportunities, missing information, and growth-model considerations
 - Generates an MVP-oriented blueprint from the analysis
 - Provides a responsive browser interface with dynamic results
@@ -25,7 +27,7 @@ Synaptic Insight Engine fetches content from a user-provided URL and routes an A
 - **Backend:** Node.js serverless functions
 - **AI:** A structured-output model through Vercel AI Gateway
 - **Data:** Supabase / PostgreSQL
-- **Libraries:** Cheerio, Vercel AI SDK
+- **Libraries:** Cheerio, pdf-parse, Vercel AI SDK
 - **Deployment:** Vercel
 - **Version control:** Git and GitHub
 
@@ -56,6 +58,8 @@ The model can be overridden locally if needed:
 ```text
 AI_MODEL=nvidia/nemotron-3.5-lightning-free
 ```
+
+An optional `OPENALEX_API_KEY` raises OpenAlex lookup capacity. The Crossref and Europe PMC paths need no key. An article with no accessible text or abstract still returns a clear error; the application does not claim to have read subscriber-only text when it has only metadata.
 
 4. Run the project locally with the Vercel CLI:
 

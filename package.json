@@ -11,7 +11,8 @@
   "license": "MIT",
   "dependencies": {
     "ai": "^7.0.152",
-    "cheerio": "^1.0.0"
+    "cheerio": "^1.0.0",
+    "pdf-parse": "^2.4.5"
   },
   "engines": {
     "node": "22.x"
