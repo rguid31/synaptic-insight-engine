@@ -28,57 +28,6 @@ const findingSchema = {
     required: ['rank', 'status', 'confidence', 'tags', 'finding']
 };
 
-const evidenceItemSchema = {
-    type: 'object',
-    additionalProperties: false,
-    properties: {
-        claim: { type: 'string' },
-        why_it_matters: { type: 'string' },
-        verification_steps: { type: 'array', items: { type: 'string' }, minItems: 3, maxItems: 6 },
-        required_data: { type: 'array', items: { type: 'string' }, minItems: 2, maxItems: 6 },
-        supporting_signal: { type: 'string' },
-        falsifying_signal: { type: 'string' }
-    },
-    required: ['claim', 'why_it_matters', 'verification_steps', 'required_data', 'supporting_signal', 'falsifying_signal']
-};
-
-const experimentSchema = {
-    type: 'object',
-    additionalProperties: false,
-    properties: {
-        hypothesis: { type: 'string' },
-        method: { type: 'string' },
-        metric: { type: 'string' },
-        pass_condition: { type: 'string' }
-    },
-    required: ['hypothesis', 'method', 'metric', 'pass_condition']
-};
-
-const blueprintSchema = {
-    type: 'object',
-    additionalProperties: false,
-    properties: {
-        executive_thesis: { type: 'string' },
-        evidence_to_verify: { type: 'array', items: evidenceItemSchema, minItems: 1, maxItems: 3 },
-        mvp_plan: {
-            type: 'object',
-            additionalProperties: false,
-            properties: {
-                problem_statement: { type: 'string' },
-                target_user: { type: 'string' },
-                value_proposition: { type: 'string' },
-                core_features: { type: 'array', items: { type: 'string' }, minItems: 3, maxItems: 6 },
-                experiments: { type: 'array', items: experimentSchema, minItems: 1, maxItems: 3 },
-                data_and_tools: { type: 'array', items: { type: 'string' }, minItems: 2, maxItems: 6 },
-                risks_and_mitigations: { type: 'array', items: { type: 'string' }, minItems: 2, maxItems: 6 },
-                next_30_days: { type: 'array', items: { type: 'string' }, minItems: 4, maxItems: 6 }
-            },
-            required: ['problem_statement', 'target_user', 'value_proposition', 'core_features', 'experiments', 'data_and_tools', 'risks_and_mitigations', 'next_30_days']
-        }
-    },
-    required: ['executive_thesis', 'evidence_to_verify', 'mvp_plan']
-};
-
 const analysisSchema = {
     type: 'object',
     additionalProperties: false,
@@ -88,8 +37,7 @@ const analysisSchema = {
         gaps: { type: 'array', items: findingSchema, minItems: 1, maxItems: 5 },
         models: { type: 'array', items: findingSchema, minItems: 1, maxItems: 5 },
         ethical_concerns: { type: 'array', items: findingSchema, minItems: 1, maxItems: 5 },
-        reproducibility_issues: { type: 'array', items: findingSchema, minItems: 1, maxItems: 5 },
-        blueprint: blueprintSchema
+        reproducibility_issues: { type: 'array', items: findingSchema, minItems: 1, maxItems: 5 }
     },
     required: [
         'exploits',
@@ -97,8 +45,7 @@ const analysisSchema = {
         'gaps',
         'models',
         'ethical_concerns',
-        'reproducibility_issues',
-        'blueprint'
+        'reproducibility_issues'
     ]
 };
 
@@ -564,18 +511,88 @@ export async function resolvePdfUpload(body, filename = 'uploaded-paper.pdf') {
 
 function validateAnalysis(value) {
     const categories = ['exploits', 'opportunities', 'gaps', 'models', 'ethical_concerns', 'reproducibility_issues'];
-    const blueprint = value?.blueprint;
     if (
         !value
         || typeof value !== 'object'
         || categories.some(key => !Array.isArray(value[key]))
-        || !blueprint
-        || !Array.isArray(blueprint.evidence_to_verify)
-        || !blueprint.mvp_plan
     ) {
         throw new Error('The AI response did not match the expected analysis format.');
     }
     return value;
+}
+
+function findingText(item) {
+    if (typeof item === 'string') return item;
+    return item?.finding || item?.description || item?.content || item?.title || '';
+}
+
+export function createBlueprintFromAnalysis(analysis, access = { level: 'abstract' }) {
+    const candidates = [
+        { kind: 'red flag', item: analysis.exploits?.[0] },
+        { kind: 'evidence gap', item: analysis.gaps?.[0] },
+        { kind: 'opportunity', item: analysis.opportunities?.[0] }
+    ].filter(entry => findingText(entry.item));
+    const primaryGap = findingText(analysis.gaps?.[0]) || 'The central evidence and assumptions need independent validation.';
+    const primaryOpportunity = findingText(analysis.opportunities?.[0]) || 'Convert the publication’s central mechanism into a measurable, reproducible workflow.';
+    const primaryModel = findingText(analysis.models?.[0]) || 'Use the publication’s primary outcome metric and uncertainty interval.';
+
+    const evidenceToVerify = candidates.map(({ kind, item }) => {
+        const claim = findingText(item);
+        return {
+            claim,
+            why_it_matters: `This ${kind} can change whether the publication should be trusted, challenged, or used as the foundation for an MVP.`,
+            verification_steps: [
+                `Trace this finding to the exact passage, table, figure, or citation in the publication: ${claim}`,
+                'Acquire the corresponding methods, supplements, raw or minimally processed data, code, parameter settings, and exclusion criteria.',
+                'Recalculate the reported result with the published procedure and record every discrepancy in sample size, preprocessing, assumptions, and uncertainty.',
+                'Run a counter-test using an alternative plausible specification, negative control, or held-out sample chosen before viewing the outcome.'
+            ],
+            required_data: ['Full methods and supplementary materials', 'Raw or minimally processed measurements with provenance', 'Versioned code, parameters, exclusions, and random seeds'],
+            supporting_signal: 'An independent reproduction preserves the reported direction, practical effect, and uncertainty bounds under the prespecified robustness checks.',
+            falsifying_signal: 'The direction reverses, the practical effect disappears, the uncertainty crosses the decision threshold, or the result depends on an undisclosed assumption or excluded observation.'
+        };
+    });
+
+    return {
+        executive_thesis: `Test the publication’s highest-value opportunity against its most consequential evidence gap before committing product resources. Opportunity: ${primaryOpportunity} Evidence gap: ${primaryGap}`,
+        evidence_to_verify: evidenceToVerify.length ? evidenceToVerify : createFallbackAnalysis('').blueprint.evidence_to_verify,
+        mvp_plan: {
+            problem_statement: `Users cannot confidently act on the publication until this uncertainty is resolved: ${primaryGap}`,
+            target_user: 'Researchers, technical reviewers, innovation teams, and evidence-driven product decision makers',
+            value_proposition: `Turn this publication-specific opportunity into a traceable test rather than an unverified claim: ${primaryOpportunity}`,
+            core_features: [
+                'Claim-to-evidence matrix linking every conclusion to its source passage, dataset, calculation, and confidence level',
+                'Versioned reproduction runner that records data lineage, parameters, exclusions, seeds, and output artifacts',
+                `Metric dashboard centered on the publication’s own decision logic: ${primaryModel}`,
+                'Counter-evidence workspace for negative controls, alternative specifications, held-out validation, and failed replications'
+            ],
+            experiments: [{
+                hypothesis: primaryOpportunity,
+                method: 'Implement the narrowest reproducible version of the published method, benchmark it against the paper’s baseline, then repeat on a held-out sample and under at least two alternative assumptions.',
+                metric: `Use the reported primary outcome plus effect size, uncertainty interval, replication error, execution cost, and failure rate. Reported model context: ${primaryModel}`,
+                pass_condition: 'Advance only if the effect keeps the reported direction, meets a prespecified practical threshold, and survives the held-out test and the strongest reasonable counter-test.'
+            }],
+            data_and_tools: [
+                access.level === 'abstract' ? 'Full paper, methods, results, tables, figures, and supplements before drawing method-level conclusions' : 'Full text plus all cited supplements and appendices',
+                'Lawfully accessible original data or a documented proxy dataset with known limitations',
+                'Version-controlled analysis environment with locked dependencies and reproducible execution',
+                'Decision log containing thresholds, counter-hypotheses, deviations, and negative results'
+            ],
+            risks_and_mitigations: [
+                'Missing data or code — mark affected claims unverifiable and request or reconstruct only with documented assumptions.',
+                'Confirmation bias — preregister the hypothesis, primary metric, pass threshold, exclusions, and counter-test.',
+                'Proxy-data mismatch — quantify distribution differences and keep proxy results separate from direct replication.',
+                'MVP overreach — ship only the validated narrow workflow, with uncertainty and provenance visible to users.'
+            ],
+            next_30_days: [
+                'Days 1–5: extract the top claims, cited evidence, variables, baselines, reported metrics, assumptions, and decision thresholds.',
+                'Days 6–12: obtain the lawful data and code, lock the environment, and reproduce the published baseline.',
+                'Days 13–20: run the primary reproduction, negative control, held-out validation, and sensitivity analyses.',
+                'Days 21–25: build the claim matrix and comparison dashboard around the strongest validated opportunity.',
+                'Days 26–30: publish discrepancies, residual uncertainty, and a go, revise, or stop decision against the prespecified pass condition.'
+            ]
+        }
+    };
 }
 
 export function parseAnalysisText(text) {
@@ -666,8 +683,6 @@ Available source: ${access.level === 'full_text' ? 'article text' : 'abstract on
 
 Return only one valid JSON object, without Markdown fences or commentary. Give 1-3 distinct, evidence-based findings in each category; use fewer when the available text is limited. Every finding must quote or precisely reference the source text. Do not infer a missing detail is absent from the paper when only an abstract is available. Use rank 1 for the highest priority and 5 for the lowest.
 
-Also produce an actionable blueprint grounded in the available source. It must help a technically capable user independently support or counter the publication's most important public claims and decide whether to build an MVP. Do not use generic filler. For each important claim, specify concrete verification steps, required evidence, and separate supporting and falsifying signals. For the MVP, define the user, value proposition, prioritized features, testable experiments, named metrics, explicit pass conditions, dependencies, risks, mitigations, and a realistic 30-day sequence. If only an abstract is available, label the evidence that must be obtained before a conclusion can be reached.
-
 - exploits: unsubstantiated claims, methodological flaws, overstated conclusions, conflicts, or misleading statistics.
 - opportunities: legitimate technologies, methods, or commercial/research opportunities.
 - gaps: missing controls, statistical evidence, validation, long-term data, or important context.
@@ -676,7 +691,7 @@ Also produce an actionable blueprint grounded in the available source. It must h
 - reproducibility_issues: missing code, data, parameters, procedures, or independent validation.
 
 Use this exact top-level shape. A finding is the complete source-grounded explanation, not a short label:
-{"exploits":[{"rank":1,"status":"CRITICAL","confidence":0.9,"tags":["claim"],"finding":"..."}],"opportunities":[{"rank":1,"status":"HIGH","confidence":0.9,"tags":["method"],"finding":"..."}],"gaps":[{"rank":1,"status":"HIGH","confidence":0.9,"tags":["evidence"],"finding":"..."}],"models":[{"rank":1,"status":"HIGH","confidence":0.9,"tags":["metric"],"finding":"..."}],"ethical_concerns":[{"rank":1,"status":"HIGH","confidence":0.9,"tags":["ethics"],"finding":"..."}],"reproducibility_issues":[{"rank":1,"status":"HIGH","confidence":0.9,"tags":["replication"],"finding":"..."}],"blueprint":{"executive_thesis":"...","evidence_to_verify":[{"claim":"...","why_it_matters":"...","verification_steps":["..."],"required_data":["..."],"supporting_signal":"...","falsifying_signal":"..."}],"mvp_plan":{"problem_statement":"...","target_user":"...","value_proposition":"...","core_features":["..."],"experiments":[{"hypothesis":"...","method":"...","metric":"...","pass_condition":"..."}],"data_and_tools":["..."],"risks_and_mitigations":["..."],"next_30_days":["..."]}}}
+{"exploits":[{"rank":1,"status":"CRITICAL","confidence":0.9,"tags":["claim"],"finding":"..."}],"opportunities":[{"rank":1,"status":"HIGH","confidence":0.9,"tags":["method"],"finding":"..."}],"gaps":[{"rank":1,"status":"HIGH","confidence":0.9,"tags":["evidence"],"finding":"..."}],"models":[{"rank":1,"status":"HIGH","confidence":0.9,"tags":["metric"],"finding":"..."}],"ethical_concerns":[{"rank":1,"status":"HIGH","confidence":0.9,"tags":["ethics"],"finding":"..."}],"reproducibility_issues":[{"rank":1,"status":"HIGH","confidence":0.9,"tags":["replication"],"finding":"..."}]}
 
 SOURCE TEXT:
 ${sourceText}`;
@@ -686,16 +701,18 @@ ${sourceText}`;
             prompt,
             reasoning: 'none',
             temperature: 0.2,
-            maxOutputTokens: 8192,
+            maxOutputTokens: 6000,
             maxRetries: 0,
-            timeout: 40000,
+            timeout: 35000,
             providerOptions: {
                 gateway: {
                     tags: ['feature:paper-analysis', `env:${process.env.VERCEL_ENV || 'development'}`]
                 }
             }
         });
-        return { analysis: parseAnalysisText(result.text || result.reasoningText), mode: 'ai' };
+        const analysis = parseAnalysisText(result.text || result.reasoningText);
+        analysis.blueprint = createBlueprintFromAnalysis(analysis, access);
+        return { analysis, mode: 'ai' };
     } catch (error) {
         console.warn('AI analysis unavailable; using source-grounded fallback:', error.message);
         return { analysis: createFallbackAnalysis(sourceText), mode: 'source_fallback' };

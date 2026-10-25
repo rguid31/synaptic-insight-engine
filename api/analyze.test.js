@@ -2,7 +2,7 @@ jest.mock('ai', () => ({
     generateText: jest.fn()
 }));
 
-import handler, { createFallbackAnalysis, extractDoi, extractSourceData, normalizeSourceUrl, parseAnalysisText, resolveSource } from './analyze.js';
+import handler, { createBlueprintFromAnalysis, createFallbackAnalysis, extractDoi, extractSourceData, normalizeSourceUrl, parseAnalysisText, resolveSource } from './analyze.js';
 
 function createResponse() {
     return {
@@ -160,6 +160,24 @@ describe('createFallbackAnalysis', () => {
         ].every(items => items.length === 1)).toBe(true);
         expect(fallback.gaps[0].description).toContain('The source reports');
         expect(fallback.blueprint.evidence_to_verify[0].verification_steps.length).toBeGreaterThan(2);
+    });
+});
+
+describe('createBlueprintFromAnalysis', () => {
+    it('turns publication-specific findings into complete verification and MVP actions', () => {
+        const blueprint = createBlueprintFromAnalysis({
+            exploits: [{ finding: 'The reported 70% error reduction is compared only with a no-covariate baseline.' }],
+            opportunities: [{ finding: 'Calendar covariates may improve time-series forecasts without retraining the language model.' }],
+            gaps: [{ finding: 'The paper does not establish whether the gain persists on a held-out external dataset.' }],
+            models: [{ finding: 'Performance is measured with RMSE across one-step and multi-step horizons.' }]
+        }, { level: 'full_text' });
+
+        expect(blueprint.evidence_to_verify).toHaveLength(3);
+        expect(blueprint.evidence_to_verify[0].claim).toContain('70% error reduction');
+        expect(blueprint.evidence_to_verify[0].verification_steps).toHaveLength(4);
+        expect(blueprint.mvp_plan.experiments[0].metric).toContain('RMSE');
+        expect(blueprint.mvp_plan.next_30_days).toHaveLength(5);
+        expect(JSON.stringify(blueprint)).not.toContain('...');
     });
 });
 
