@@ -1040,10 +1040,10 @@
                 <div class="export-controls">
                     <h3>📊 Export Options</h3>
                     <div class="export-buttons">
-                        <button onclick="exportToCSV()" class="export-btn csv-btn">📄 Export CSV</button>
-                        <button onclick="exportToPDF()" class="export-btn pdf-btn">📑 Export PDF</button>
-                        <button onclick="exportToJSON()" class="export-btn json-btn">💾 Export JSON</button>
-                        <button onclick="copyToClipboard()" class="export-btn copy-btn">📋 Copy Text</button>
+                        <button onclick="exportToCSV()" class="export-btn csv-btn">📄 Findings CSV</button>
+                        <button onclick="exportToPDF()" class="export-btn pdf-btn">📑 Download PDF</button>
+                        <button onclick="exportToJSON()" class="export-btn json-btn">💾 Analysis JSON</button>
+                        <button onclick="copyToClipboard()" class="export-btn copy-btn">📋 Copy Summary</button>
                     </div>
                 </div>
             `;
@@ -1086,48 +1086,11 @@
         }
 
         function exportToPDF() {
-            // For now, create a formatted text version that can be converted to PDF
             if (!currentAnalysisResult) {
-                showToast('No analysis data to export', true);
+                showToast('No analysis data to print', true);
                 return;
             }
-
-            const analysis = currentAnalysisResult.analysis;
-            const scores = calculateResearchScore(analysis);
-            const title = extractTitle(currentAnalysisResult.structuredData || currentAnalysisResult.sourceText);
-
-            let pdfContent = `RESEARCH PAPER ANALYSIS REPORT\n`;
-            pdfContent += `${'='.repeat(50)}\n\n`;
-            pdfContent += `Paper: ${title}\n`;
-            pdfContent += `Analysis Date: ${new Date().toLocaleDateString()}\n`;
-            pdfContent += `Overall Quality Score: ${scores.overall_quality}/100\n\n`;
-
-            // Add detailed scores
-            pdfContent += `QUALITY METRICS:\n`;
-            pdfContent += `${'-'.repeat(20)}\n`;
-            Object.entries(scores).filter(([key]) => key !== 'overall_quality').forEach(([metric, score]) => {
-                pdfContent += `${formatMetricName(metric)}: ${score}/100\n`;
-            });
-
-            // Add findings by category
-            Object.entries(analysis).forEach(([category, items]) => {
-                if (Array.isArray(items) && items.length > 0) {
-                    pdfContent += `\n${category.toUpperCase().replace('_', ' ')}:\n`;
-                    pdfContent += `${'-'.repeat(30)}\n`;
-
-                    items.forEach((item, index) => {
-                        if (typeof item === 'object') {
-                            pdfContent += `${index + 1}. [Rank ${item.rank || 'N/A'}] [${getItemStatus(item)}] `;
-                            pdfContent += `${getItemText(item)}\n\n`;
-                        } else {
-                            pdfContent += `${index + 1}. ${item}\n\n`;
-                        }
-                    });
-                }
-            });
-
-            downloadFile(pdfContent, 'research-analysis.txt', 'text/plain');
-            showToast('Text report exported! Use a PDF converter for final PDF format.');
+            window.EvidenceDossier.exportAs('pdf');
         }
 
         function exportToJSON() {
@@ -1144,6 +1107,7 @@
                 },
                 scores: calculateResearchScore(currentAnalysisResult.analysis),
                 analysis: currentAnalysisResult.analysis,
+                dossier: window.EvidenceDossier.exportData(),
                 structuredData: currentAnalysisResult.structuredData,
                 sourceText: currentAnalysisResult.sourceText
             };
@@ -1387,120 +1351,13 @@
 
         function generateBlueprint(scroll = true) {
             if (!currentAnalysisResult) return;
-            const { analysis } = currentAnalysisResult;
-            const itemText = item => typeof item === 'string' ? item : `${item.title ? `${item.title}: ` : ''}${getItemText(item)}`;
-            const list = values => (Array.isArray(values) ? values : []).map(value => `  - ${value}`).join('\n') || '  - Not established in the available source.';
-            const fallbackEvidence = [...(analysis.exploits || []), ...(analysis.gaps || []), ...(analysis.models || [])]
-                .slice(0, 3)
-                .map(item => ({
-                    claim: itemText(item),
-                    why_it_matters: 'This finding can materially change whether the publication should be trusted or used as the basis for a product.',
-                    verification_steps: ['Locate the exact table, figure, or passage supporting this finding.', 'Recalculate the reported result from the underlying data or closest lawful dataset.', 'Repeat the calculation under alternative assumptions and document every discrepancy.'],
-                    required_data: ['Methods and supplementary materials', 'Raw or minimally processed data', 'Code, parameters, and exclusion criteria'],
-                    supporting_signal: 'The direction and practical effect remain stable after independent reproduction and sensitivity testing.',
-                    falsifying_signal: 'The result disappears, reverses, or depends on an undisclosed assumption or excluded observation.'
-                }));
-            const primaryOpportunity = itemText((analysis.opportunities || [])[0] || 'A transparent evidence-verification workflow');
-            const primaryGap = itemText((analysis.gaps || [])[0] || 'The central evidence has not yet been independently verified');
-            const blueprint = analysis.blueprint || {
-                executive_thesis: `Validate the publication's highest-value opportunity while resolving this key uncertainty: ${primaryGap}`,
-                evidence_to_verify: fallbackEvidence,
-                mvp_plan: {
-                    problem_statement: primaryGap,
-                    target_user: 'Researchers, technical reviewers, and evidence-driven product teams',
-                    value_proposition: `Turn the publication's core opportunity into a transparent, testable workflow: ${primaryOpportunity}`,
-                    core_features: ['Claim-to-evidence matrix linked to source passages', 'Reproducible analysis pipeline with versioned parameters', 'Sensitivity and counter-evidence testing', 'Decision dashboard showing support, contradiction, and uncertainty'],
-                    experiments: [{ hypothesis: primaryOpportunity, method: 'Reproduce the central result, then run a held-out validation and at least two sensitivity analyses.', metric: 'Direction, effect size, uncertainty interval, and error against the published result', pass_condition: 'The effect remains practically meaningful and directionally consistent under prespecified robustness checks.' }],
-                    data_and_tools: ['Full methods and supplements', 'Lawfully accessible source data or a justified proxy dataset', 'Version-controlled computation environment'],
-                    risks_and_mitigations: ['Missing data — label the claim unverifiable and request the missing artifact.', 'Confirmation bias — preregister the test, thresholds, and counter-hypotheses.'],
-                    next_30_days: ['Days 1–5: create the claim and evidence inventory.', 'Days 6–12: acquire data and reproduce the analysis environment.', 'Days 13–21: run reproduction, counter-tests, and sensitivity checks.', 'Days 22–30: publish discrepancies and make the MVP go/no-go decision.']
-                }
-            };
-            const plan = blueprint.mvp_plan || {};
-            const sourceScope = currentAnalysisResult.sourceAccess?.level === 'abstract'
-                ? 'ABSTRACT ONLY — obtain the full methods, results, tables, and supplements before treating missing details as flaws.'
-                : 'FULL TEXT — verification should still use the original data, code, and supplements where available.';
-
-            let evidenceText = '';
-            (blueprint.evidence_to_verify || fallbackEvidence).forEach((item, index) => {
-                evidenceText += `
-Claim ${index + 1}: ${item.claim || 'Claim not specified'}
-Why it matters: ${item.why_it_matters || 'It affects the strength or usefulness of the publication.'}
-Verification steps:
-${list(item.verification_steps)}
-Required evidence:
-${list(item.required_data)}
-Evidence that would SUPPORT the claim: ${item.supporting_signal || 'Independent results reproduce the reported direction and practical effect.'}
-Evidence that would COUNTER or FALSIFY the claim: ${item.falsifying_signal || 'Independent results fail to reproduce the direction or practical effect.'}
-`;
-            });
-
-            let experimentsText = '';
-            (plan.experiments || []).forEach((experiment, index) => {
-                experimentsText += `
-Experiment ${index + 1}
-  Hypothesis: ${experiment.hypothesis || 'Not specified'}
-  Method: ${experiment.method || 'Not specified'}
-  Metric: ${experiment.metric || 'Not specified'}
-  Pass condition: ${experiment.pass_condition || 'Define before testing.'}
-`;
-            });
-
-            const blueprintText = `EVIDENCE VALIDATION & MVP BLUEPRINT
-====================================
-
-SOURCE SCOPE
-${sourceScope}
-
-EXECUTIVE THESIS
-${blueprint.executive_thesis || 'Independently validate the central publication claim before using it as the basis for an MVP.'}
-
-1. CLAIMS TO PROVE OR COUNTER
------------------------------${evidenceText || '\nNo evidence-validation items were returned. Obtain the full publication and rerun the analysis.'}
-
-2. MVP DECISION BRIEF
----------------------
-Problem: ${plan.problem_statement || primaryGap}
-Target user: ${plan.target_user || 'Not specified'}
-Value proposition: ${plan.value_proposition || primaryOpportunity}
-
-Prioritized features:
-${list(plan.core_features)}
-
-3. MVP EXPERIMENTS AND PASS/FAIL METRICS
-----------------------------------------${experimentsText || '\nNo experiments were returned. Convert the primary claim into a measurable hypothesis before building.'}
-
-4. DATA, TOOLS, AND DEPENDENCIES
---------------------------------
-${list(plan.data_and_tools)}
-
-5. RISKS AND MITIGATIONS
-------------------------
-${list(plan.risks_and_mitigations)}
-
-6. 30-DAY ACTION PLAN
----------------------
-${list(plan.next_30_days)}
-
-DECISION RULE
-Do not advance the MVP because a result is novel or newsworthy. Advance only when the prespecified pass condition is met, the most important counter-test fails to overturn it, and the remaining uncertainty is acceptable for the target user's decision.`;
-            blueprintContent.textContent = blueprintText.trim();
+            window.EvidenceDossier.render(currentAnalysisResult, getCurrentSourceReference(), blueprintContent);
             blueprintSection.style.display = 'block';
             if (scroll) blueprintSection.scrollIntoView({ behavior: 'smooth' });
         }
 
         function downloadBlueprint() {
-            if (!blueprintContent.textContent) {
-                showToast('No blueprint to download.', true);
-                return;
-            }
-            const blob = new Blob([blueprintContent.textContent], { type: 'text/plain' });
-            const a = document.createElement('a');
-            a.href = URL.createObjectURL(blob);
-            a.download = 'mvp-blueprint.txt';
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
+            window.EvidenceDossier.exportAs('md');
         }
 
         // Form submission handler

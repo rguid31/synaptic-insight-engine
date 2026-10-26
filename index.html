@@ -6,6 +6,7 @@
     <title>Synaptic Insight Engine</title>
     <link rel="icon" href="/favicon.ico" type="image/x-icon">
     <link rel="stylesheet" href="public/css/style.css">
+    <link rel="stylesheet" href="public/css/dossier.css">
 </head>
 <body>
     <div class="neural-bg"></div>
@@ -34,7 +35,7 @@
             <div class="header-content">
                 <div class="header-main">
                     <h1>Synaptic Insight Engine</h1>
-                    <p class="subtitle">Extract Exploits → Identify Gaps → Generate Blueprints → Build MVPs</p>
+                    <p class="subtitle">Extract Findings → Validate Evidence → Build a Dossier → Plan an MVP</p>
                 </div>
                 <div class="header-auth" id="authContainer">
                     <!-- Authentication components will be rendered here -->
@@ -79,7 +80,7 @@
                             <h3><span class="card-icon" style="font-size: 0.8em; width: 24px; height: 24px;">🧭</span> Extended Analysis</h3>
                             <ul>
                                 <li>Research quality scoring</li>
-                                <li>Suggested MVP blueprint</li>
+                                <li>Evidence-to-MVP dossier</li>
                                 <li>Reproducibility review</li>
                                 <li>Ethical consideration flags</li>
                             </ul>
@@ -437,10 +438,16 @@
             </div>
         </div>
 
-        <div class="blueprint-section" id="blueprintSection">
-            <h2 class="section-title">📋 Generated Blueprint</h2>
-            <div class="blueprint-content" id="blueprintContent"></div>
-            <button class="random-btn" onclick="downloadBlueprint()" aria-label="Download the generated blueprint as a text file" style="background: #334;">⬇ Download Blueprint</button>
+        <div class="blueprint-section dossier-section" id="blueprintSection">
+            <div class="dossier-heading">
+                <div>
+                    <p class="dossier-eyebrow">Research to action</p>
+                    <h2 class="section-title">Evidence-to-MVP Dossier</h2>
+                    <p class="dossier-subtitle">Examine claims, test the evidence, and plan a focused build.</p>
+                </div>
+                <span class="dossier-version">Structured report</span>
+            </div>
+            <div class="blueprint-content" id="blueprintContent" aria-live="polite"></div>
         </div>
     </div>
     
@@ -456,6 +463,7 @@
         </div>
     </footer>
 
+    <script src="public/js/dossier.js"></script>
     <script src="public/js/script.js"></script>
 </body>
 </html>

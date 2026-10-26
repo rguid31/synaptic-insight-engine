@@ -13,7 +13,8 @@
     "@napi-rs/canvas": "^0.1.80",
     "ai": "^7.0.152",
     "cheerio": "^1.0.0",
-    "pdf-parse": "^2.4.5"
+    "pdf-parse": "^2.4.5",
+    "pdfkit": "^0.17.2"
   },
   "engines": {
     "node": "22.x"

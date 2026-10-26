@@ -18,7 +18,10 @@ Synaptic Insight Engine resolves a user-provided article URL, reads available ar
 - Uses Europe PMC open-access full text or a verified abstract when no full text can be read
 - Uses Vercel AI Gateway for structured AI-assisted analysis
 - Highlights claims, opportunities, missing information, and growth-model considerations
-- Generates an evidence-validation and MVP blueprint with verification steps, falsifying signals, experiments, pass conditions, risks, and a 30-day plan
+- Builds a structured Evidence-to-MVP Dossier with Executive, Scientific Validation, and MVP Build Plan views
+- Includes a claim/evidence matrix, editable verification records, reproducibility checklists, a system architecture diagram, experiment metrics, risks, and a 30-day roadmap
+- Saves dossier notes and task progress in the browser for each analyzed source
+- Downloads a designed PDF directly, plus Markdown, JSON, claim-matrix CSV, and plain text
 - Keeps up to 50 completed analyses in browser-local history for quick reopening
 - Provides a responsive browser interface with dynamic results
 - Runs on Vercel using serverless API functions
